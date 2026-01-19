@@ -1,0 +1,10 @@
+.dockerignore
+.env
+.git
+backend/.env
+backend/data
+backend/node_modules
+backend/uploads
+Dockerfile
+frontend/.env
+frontend/node_modules
