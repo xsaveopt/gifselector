@@ -77,6 +77,7 @@ docker run -e PORT=8080 -e ADMIN_PASSWORD=supersecure ... gifselector
 - `ADMIN_PASSWORD`: Admin Password.
 - `JWT_SECRET`: Security key.
 - `UPLOAD_DIR`: Path to store uploads (default: `/app/backend/uploads`).
+- `BASE_PATH`: Subdirectory where app gets served.
 
 ## Running the Project
 

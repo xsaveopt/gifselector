@@ -1,5 +1,6 @@
 .dockerignore
 .env
+.env.example
 .git
 backend/.env
 backend/data

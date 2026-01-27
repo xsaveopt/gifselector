@@ -653,3 +653,52 @@ button:disabled {
   border-top: 0;
   padding-top: 0;
 }
+
+/* Import Box */
+.import-trigger {
+  width: 100%;
+  text-align: left;
+  font-size: 0.9rem;
+  background: #ffffff;
+}
+
+.import-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.import-textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 0.5rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  min-height: 80px;
+}
+
+.import-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.import-actions button {
+  flex: 1;
+  padding: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.button-muted {
+  border-color: #d1d5db;
+  color: #6b7280;
+}
+
+.import-status {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

@@ -109,3 +109,15 @@ export async function updateGifCategories(slug: string, categoryIds: number[]) {
   });
   return handleResponse(response);
 }
+
+export async function importGifs(urls: string[]) {
+  const response = await fetch(`${basePath}/api/import`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ urls })
+  });
+  return handleResponse(response);
+}

@@ -1,7 +1,6 @@
+# build frontend and install backend dependencies
 FROM node:24 AS build
 WORKDIR /app
-
-ENV VITE_BASE_PATH=/gifs
 
 COPY . .
 
@@ -10,18 +9,23 @@ RUN set -xe \
     && npm install --prefix frontend \
     && npm run build --prefix frontend
 
+# copy built assets and backend to a minimal image
 FROM node:24-slim AS runner
 WORKDIR /app
-
-ENV FRONTEND_DIST=/app/frontend/dist
-ENV NODE_ENV=production
 
 COPY --from=build /app/backend/ ./backend
 COPY --from=build /app/frontend/dist ./frontend/dist
 COPY --from=build /app/frontend/package.json ./frontend/package.json
 COPY entrypoint.sh ./
 
+ENV NODE_ENV=production
+
 RUN set -xe \
+    # install conversion dependencies
+    && apt update \
+    && apt install -y --no-install-recommends \
+        ffmpeg \
+        imagemagick \
     # update npm
     && npm i -g npm \
     # make entrypoint executable
@@ -32,15 +36,12 @@ RUN set -xe \
     && npm cache clean --force \
     && rm -rf /root /opt/* /tmp/* /var/cache/* /var/log/* /var/spool/* /var/lib/systemd
 
+# create final minimal image
 FROM scratch AS final
-COPY --from=runner / /
 WORKDIR /app
 
-ENV BACKEND_BASE_PATH=/gifs
-ENV FRONTEND_DIST=/app/frontend/dist
+COPY --from=runner / /
 ENV NODE_ENV=production
-ENV VITE_BASE_PATH=/gifs
 
 USER node
-
 ENTRYPOINT ["/app/entrypoint.sh"]

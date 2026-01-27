@@ -1,16 +1,17 @@
 import type { DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  createCategory,
-  deleteCategory,
-  deleteGif,
-  fetchCategories,
-  fetchGifs,
-  getSession,
-  login,
-  logout,
-  updateGifCategories,
-  uploadGif,
+    createCategory,
+    deleteCategory,
+    deleteGif,
+    fetchCategories,
+    fetchGifs,
+    getSession,
+    importGifs,
+    login,
+    logout,
+    updateGifCategories,
+    uploadGif,
 } from "./api";
 import CategoryManager from "./components/CategoryManager";
 import Gallery from "./components/Gallery";
@@ -88,6 +89,10 @@ export default function App() {
     },
   );
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -173,6 +178,48 @@ export default function App() {
   useEffect(() => {
     loadSession();
   }, [loadSession]);
+
+  const handleImport = async () => {
+    if (!importText.trim()) return;
+    setIsImporting(true);
+    setImportStatus("Importing...");
+
+    const urls = importText
+      .split(/[\n\r]+/)
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+
+    if (urls.length === 0) {
+      setIsImporting(false);
+      setImportStatus(null);
+      return;
+    }
+
+    try {
+      const result = await importGifs(urls);
+      const successes = result.results.filter((r: any) => r.success).length;
+      const failures = result.results.length - successes;
+
+      if (failures > 0) {
+        setImportStatus(
+          `Imported ${successes}, Passed ${failures}. Check console.`,
+        );
+        console.log("Import results:", result.results);
+      } else {
+        setImportStatus(`Successfully imported ${successes} item(s).`);
+      }
+
+      if (successes > 0) {
+        await loadAdminData();
+        setImportText("");
+      }
+    } catch (err) {
+      console.error(err);
+      setImportStatus("Import failed.");
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const handleLogin = async (username: string, password: string) => {
     setIsAuthenticating(true);
@@ -456,6 +503,55 @@ export default function App() {
               List
             </button>
           </div>
+        </div>
+
+        <div className="filter-section">
+          <label className="filter-label">Import</label>
+          {!isImportOpen ? (
+            <button
+              type="button"
+              className="import-trigger"
+              onClick={() => setIsImportOpen(true)}
+            >
+              Import from URLs
+            </button>
+          ) : (
+            <div className="import-box">
+              <textarea
+                className="import-textarea"
+                placeholder={`Paste URLS from:\n${[
+                  "tenor.com",
+                  "giphy.com",
+                  "discord.com",
+                ].join("\n")}`}
+                rows={4}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                disabled={isImporting}
+              />
+              <div className="import-actions">
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={isImporting || !importText.trim()}
+                >
+                  {isImporting ? "Working..." : "Run"}
+                </button>
+                <button
+                  type="button"
+                  className="button-muted"
+                  disabled={isImporting}
+                  onClick={() => {
+                    setIsImportOpen(false);
+                    setImportStatus(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+              {importStatus && <p className="import-status">{importStatus}</p>}
+            </div>
+          )}
         </div>
 
         <div className="instructions-block">
