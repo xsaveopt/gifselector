@@ -3,9 +3,9 @@ name: Build and Publish Container
 on:
   push:
     branches:
-      - master
+      - main
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 env:
