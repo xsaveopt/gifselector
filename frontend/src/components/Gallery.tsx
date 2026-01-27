@@ -25,6 +25,7 @@ type GalleryProps = {
   deletingSlug: string | null;
   onUpdateCategories: (slug: string, categoryIds: number[]) => Promise<boolean>;
   updatingCategoriesSlug: string | null;
+  viewMode: "grid" | "list";
 };
 
 function formatBytes(bytes: number) {
@@ -54,6 +55,7 @@ export default function Gallery({
   deletingSlug,
   onUpdateCategories,
   updatingCategoriesSlug,
+  viewMode,
 }: GalleryProps) {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -92,7 +94,7 @@ export default function Gallery({
   }
 
   return (
-    <div className="gallery">
+    <div className={`gallery gallery--${viewMode}`}>
       {gifs.map((gif) => {
         const isUpdating = updatingCategoriesSlug === gif.slug;
         return (

@@ -42,6 +42,8 @@ type SessionState = {
   username?: string;
 };
 
+const UNCATEGORIZED_ID = -1;
+
 function formatBytes(bytes: number) {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -85,6 +87,7 @@ export default function App() {
       return defaultId ? Number(defaultId) : null;
     },
   );
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -101,6 +104,9 @@ export default function App() {
   const filteredGifs = useMemo(() => {
     if (selectedCategory === null) {
       return gifs;
+    }
+    if (selectedCategory === UNCATEGORIZED_ID) {
+      return gifs.filter((gif) => gif.categories.length === 0);
     }
     return gifs.filter((gif) =>
       gif.categories.some((c) => c.id === selectedCategory),
@@ -422,12 +428,33 @@ export default function App() {
               }}
             >
               <option value="">All Categories</option>
+              <option value={UNCATEGORIZED_ID}>Uncategorized</option>
               {categories.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
                 </option>
               ))}
             </select>
+          </div>
+        </div>
+
+        <div className="filter-section">
+          <label className="filter-label">View</label>
+          <div className="view-selector">
+            <button
+              type="button"
+              className={viewMode === "grid" ? "selected" : ""}
+              onClick={() => setViewMode("grid")}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              className={viewMode === "list" ? "selected" : ""}
+              onClick={() => setViewMode("list")}
+            >
+              List
+            </button>
           </div>
         </div>
 
@@ -496,6 +523,7 @@ export default function App() {
             deletingSlug={deletingSlug}
             onUpdateCategories={handleUpdateGifCategories}
             updatingCategoriesSlug={updatingCategorySlug}
+            viewMode={viewMode}
           />
         </div>
       </main>
