@@ -1,20 +1,20 @@
-import type { DragEvent } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import type { DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    createCategory,
-    deleteCategory,
-    deleteGif,
-    fetchCategories,
-    fetchGifs,
-    getSession,
-    login,
-    logout,
-    updateGifCategories,
-    uploadGif
-} from './api';
-import CategoryManager from './components/CategoryManager';
-import Gallery from './components/Gallery';
-import LoginForm from './components/LoginForm';
+  createCategory,
+  deleteCategory,
+  deleteGif,
+  fetchCategories,
+  fetchGifs,
+  getSession,
+  login,
+  logout,
+  updateGifCategories,
+  uploadGif,
+} from "./api";
+import CategoryManager from "./components/CategoryManager";
+import Gallery from "./components/Gallery";
+import LoginForm from "./components/LoginForm";
 
 type GifCategory = {
   id: number;
@@ -33,6 +33,7 @@ type GifItem = {
   shareUrl: string;
   createdAt: string;
   sizeBytes: number;
+  mimeType?: string;
   categories: GifCategory[];
 };
 
@@ -41,8 +42,18 @@ type SessionState = {
   username?: string;
 };
 
+function formatBytes(bytes: number) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
 export default function App() {
-  const [session, setSession] = useState<SessionState>({ authenticated: false });
+  const [session, setSession] = useState<SessionState>({
+    authenticated: false,
+  });
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -50,8 +61,12 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
-  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
-  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<string | null>(null);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(
+    null,
+  );
+  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<
+    string | null
+  >(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -59,12 +74,56 @@ export default function App() {
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(
+    () => {
+      const params = new URLSearchParams(window.location.search);
+      const categoryId = params.get("category");
+      if (categoryId) {
+        return Number(categoryId);
+      }
+      const defaultId = import.meta.env.VITE_DEFAULT_CATEGORY_ID;
+      return defaultId ? Number(defaultId) : null;
+    },
+  );
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (selectedCategory !== null) {
+      params.set("category", String(selectedCategory));
+    } else {
+      params.delete("category");
+    }
+    const newRelativePathQuery =
+      window.location.pathname + "?" + params.toString();
+    window.history.replaceState(null, "", newRelativePathQuery);
+  }, [selectedCategory]);
+
+  const filteredGifs = useMemo(() => {
+    if (selectedCategory === null) {
+      return gifs;
+    }
+    return gifs.filter((gif) =>
+      gif.categories.some((c) => c.id === selectedCategory),
+    );
+  }, [gifs, selectedCategory]);
+
+  const stats = useMemo(() => {
+    const totalSize = gifs.reduce((acc, gif) => acc + gif.sizeBytes, 0);
+    const gifCount = gifs.filter((g) => g.mimeType === "image/gif").length;
+    const webpCount = gifs.filter((g) => g.mimeType === "image/webp").length;
+    const uncategorizedCount = gifs.filter(
+      (g) => g.categories.length === 0,
+    ).length;
+    return { totalSize, gifCount, webpCount, uncategorizedCount };
+  }, [gifs]);
 
   const loadGifs = useCallback(async () => {
     try {
       const data = await fetchGifs();
       setGifs(data.gifs ?? []);
-      setTotalCount(typeof data.total === 'number' ? data.total : data.gifs?.length ?? 0);
+      setTotalCount(
+        typeof data.total === "number" ? data.total : (data.gifs?.length ?? 0),
+      );
     } catch (error) {
       console.error(error);
     }
@@ -116,7 +175,7 @@ export default function App() {
       await login(username, password);
       await loadSession();
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : 'Login failed.');
+      setLoginError(error instanceof Error ? error.message : "Login failed.");
     } finally {
       setIsAuthenticating(false);
     }
@@ -139,27 +198,32 @@ export default function App() {
     }
   };
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) {
-      return;
-    }
-    setUploadError(null);
-    setIsUploading(true);
-    try {
-      for (const file of Array.from(files)) {
-        if (!['image/gif', 'image/webp'].includes(file.type)) {
-          setUploadError('Only GIF or WebP files are supported.');
-          continue;
-        }
-        await uploadGif(file);
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) {
+        return;
       }
-      await loadAdminData();
-    } catch (error) {
-      setUploadError(error instanceof Error ? error.message : 'Upload failed.');
-    } finally {
-      setIsUploading(false);
-    }
-  }, [loadAdminData]);
+      setUploadError(null);
+      setIsUploading(true);
+      try {
+        for (const file of Array.from(files)) {
+          if (!["image/gif", "image/webp"].includes(file.type)) {
+            setUploadError("Only GIF or WebP files are supported.");
+            continue;
+          }
+          await uploadGif(file);
+        }
+        await loadAdminData();
+      } catch (error) {
+        setUploadError(
+          error instanceof Error ? error.message : "Upload failed.",
+        );
+      } finally {
+        setIsUploading(false);
+      }
+    },
+    [loadAdminData],
+  );
 
   const handleDrop = useCallback(
     async (event: DragEvent<HTMLDivElement>) => {
@@ -169,11 +233,11 @@ export default function App() {
       setIsDragging(false);
       await handleFiles(event.dataTransfer.files);
     },
-    [handleFiles]
+    [handleFiles],
   );
 
   const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) {
+    if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
     event.preventDefault();
@@ -183,7 +247,7 @@ export default function App() {
   }, []);
 
   const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) {
+    if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
     event.preventDefault();
@@ -198,17 +262,19 @@ export default function App() {
   }, []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes('Files')) {
+    if (!event.dataTransfer.types.includes("Files")) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = 'copy';
+    event.dataTransfer.dropEffect = "copy";
   }, []);
 
   const handleDelete = useCallback(
     async (slug: string, name: string) => {
-      const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
+      const confirmed = window.confirm(
+        `Delete "${name}"? This cannot be undone.`,
+      );
       if (!confirmed) {
         return;
       }
@@ -218,19 +284,21 @@ export default function App() {
         await deleteGif(slug);
         await loadAdminData();
       } catch (error) {
-        setDeleteError(error instanceof Error ? error.message : 'Delete failed.');
+        setDeleteError(
+          error instanceof Error ? error.message : "Delete failed.",
+        );
       } finally {
         setDeletingSlug(null);
       }
     },
-    [loadAdminData]
+    [loadAdminData],
   );
 
   const handleCreateCategory = useCallback(
     async (name: string) => {
       const trimmed = name.trim();
       if (!trimmed) {
-        setCategoryError('Category name is required.');
+        setCategoryError("Category name is required.");
         return false;
       }
       setCategoryError(null);
@@ -240,18 +308,22 @@ export default function App() {
         await loadCategories();
         return true;
       } catch (error) {
-        setCategoryError(error instanceof Error ? error.message : 'Failed to create category.');
+        setCategoryError(
+          error instanceof Error ? error.message : "Failed to create category.",
+        );
         return false;
       } finally {
         setIsCreatingCategory(false);
       }
     },
-    [loadCategories]
+    [loadCategories],
   );
 
   const handleDeleteCategory = useCallback(
     async (categoryId: number, categoryName: string) => {
-      const confirmed = window.confirm(`Delete category "${categoryName}"? Assignments will be removed.`);
+      const confirmed = window.confirm(
+        `Delete category "${categoryName}"? Assignments will be removed.`,
+      );
       if (!confirmed) {
         return false;
       }
@@ -262,13 +334,15 @@ export default function App() {
         await loadAdminData();
         return true;
       } catch (error) {
-        setCategoryError(error instanceof Error ? error.message : 'Failed to delete category.');
+        setCategoryError(
+          error instanceof Error ? error.message : "Failed to delete category.",
+        );
         return false;
       } finally {
         setDeletingCategoryId(null);
       }
     },
-    [loadAdminData]
+    [loadAdminData],
   );
 
   const handleUpdateGifCategories = useCallback(
@@ -277,20 +351,28 @@ export default function App() {
       setUpdatingCategorySlug(slug);
       try {
         const result = await updateGifCategories(slug, categoryIds);
-        const nextCategories = Array.isArray(result.categories) ? result.categories : [];
+        const nextCategories = Array.isArray(result.categories)
+          ? result.categories
+          : [];
         setGifs((current) =>
-          current.map((gif) => (gif.slug === slug ? { ...gif, categories: nextCategories } : gif))
+          current.map((gif) =>
+            gif.slug === slug ? { ...gif, categories: nextCategories } : gif,
+          ),
         );
         await loadCategories();
         return true;
       } catch (error) {
-        setCategoryError(error instanceof Error ? error.message : 'Failed to update categories.');
+        setCategoryError(
+          error instanceof Error
+            ? error.message
+            : "Failed to update categories.",
+        );
         return false;
       } finally {
         setUpdatingCategorySlug(null);
       }
     },
-    [loadCategories]
+    [loadCategories],
   );
 
   if (isSessionLoading) {
@@ -304,53 +386,120 @@ export default function App() {
   if (!session.authenticated) {
     return (
       <div className="app-shell">
-        <LoginForm onSubmit={handleLogin} isSubmitting={isAuthenticating} errorMessage={loginError} />
+        <LoginForm
+          onSubmit={handleLogin}
+          isSubmitting={isAuthenticating}
+          errorMessage={loginError}
+        />
       </div>
     );
   }
 
   return (
     <div
-      className={`layout${isDragging ? ' layout-dragging' : ''}`}
+      className={`dashboard${isDragging ? " dashboard-dragging" : ""}`}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <header className="header">
-        <div>
+      <aside className="sidebar">
+        <div className="sidebar-header">
           <h1>gifselector</h1>
-          <p className="muted">Welcome back{session.username ? `, ${session.username}` : ''}.</p>
         </div>
-        <button type="button" onClick={handleLogout}>
-          Log out
-        </button>
-      </header>
-      <div className="instructions-block">
-        <p className="muted instructions">Drag GIF or WebP files anywhere on the screen to upload them.</p>
-        <p className="muted instructions">Total entries: {totalCount}</p>
-      </div>
-      <CategoryManager
-        categories={categories}
-        onCreateCategory={handleCreateCategory}
-        onDeleteCategory={handleDeleteCategory}
-        isCreating={isCreatingCategory}
-        deletingCategoryId={deletingCategoryId}
-      />
-      {uploadError ? <p className="error">{uploadError}</p> : null}
-      {deleteError ? <p className="error">{deleteError}</p> : null}
-      {categoryError ? <p className="error">{categoryError}</p> : null}
-      {isUploading ? <p className="muted">Uploading…</p> : null}
-      <div className="gallery-scroll">
-        <Gallery
-          gifs={gifs}
+
+        <div className="filter-section">
+          <label htmlFor="category-filter" className="filter-label">
+            Filter
+          </label>
+          <div className="select-wrapper">
+            <select
+              id="category-filter"
+              value={selectedCategory ?? ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedCategory(val ? Number(val) : null);
+              }}
+            >
+              <option value="">All Categories</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="instructions-block">
+          <p className="muted instructions">
+            {selectedCategory
+              ? `Showing ${filteredGifs.length} of ${totalCount} entries`
+              : `Total entries: ${totalCount}`}
+          </p>
+          <p className="muted instructions">
+            Drag GIF or WebP files anywhere on the screen to upload them.
+          </p>
+        </div>
+
+        <CategoryManager
           categories={categories}
-          onDelete={handleDelete}
-          deletingSlug={deletingSlug}
-          onUpdateCategories={handleUpdateGifCategories}
-          updatingCategoriesSlug={updatingCategorySlug}
+          onCreateCategory={handleCreateCategory}
+          onDeleteCategory={handleDeleteCategory}
+          isCreating={isCreatingCategory}
+          deletingCategoryId={deletingCategoryId}
         />
-      </div>
+
+        <div className="stats-block">
+          <h2>Stats</h2>
+          <dl className="stats-list">
+            <div className="stats-item">
+              <dt>Total Size</dt>
+              <dd>{formatBytes(stats.totalSize)}</dd>
+            </div>
+            <div className="stats-item">
+              <dt>GIFs</dt>
+              <dd>{stats.gifCount}</dd>
+            </div>
+            <div className="stats-item">
+              <dt>WebPs</dt>
+              <dd>{stats.webpCount}</dd>
+            </div>
+            <div className="stats-item">
+              <dt>Uncategorized</dt>
+              <dd>{stats.uncategorizedCount}</dd>
+            </div>
+          </dl>
+        </div>
+      </aside>
+
+      <main className="dashboard-main">
+        <header className="top-bar">
+          <p className="muted">
+            Welcome back{session.username ? `, ${session.username}` : ""}.
+          </p>
+          <button type="button" onClick={handleLogout}>
+            Log out
+          </button>
+        </header>
+
+        <div className="gallery-container">
+          {uploadError ? <p className="error">{uploadError}</p> : null}
+          {deleteError ? <p className="error">{deleteError}</p> : null}
+          {categoryError ? <p className="error">{categoryError}</p> : null}
+          {isUploading ? <p className="muted">Uploading…</p> : null}
+
+          <Gallery
+            gifs={filteredGifs}
+            categories={categories}
+            onDelete={handleDelete}
+            deletingSlug={deletingSlug}
+            onUpdateCategories={handleUpdateGifCategories}
+            updatingCategoriesSlug={updatingCategorySlug}
+          />
+        </div>
+      </main>
+
       {isDragging ? (
         <div className="drag-overlay">
           <p>Drop to upload GIF/WebP files</p>

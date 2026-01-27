@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState } from "react";
 
 type GifCategory = {
   id: number;
@@ -12,6 +12,7 @@ type GifItem = {
   shareUrl: string;
   createdAt: string;
   sizeBytes: number;
+  mimeType?: string;
   categories: GifCategory[];
 };
 
@@ -52,7 +53,7 @@ export default function Gallery({
   onDelete,
   deletingSlug,
   onUpdateCategories,
-  updatingCategoriesSlug
+  updatingCategoriesSlug,
 }: GalleryProps) {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -64,11 +65,15 @@ export default function Gallery({
         setCopiedSlug((current) => (current === slug ? null : current));
       }, 2000);
     } catch (error) {
-      console.error('Failed to copy share link', error);
+      console.error("Failed to copy share link", error);
     }
   };
 
-  const handleCategoryToggle = (gif: GifItem, categoryId: number, isChecked: boolean) => {
+  const handleCategoryToggle = (
+    gif: GifItem,
+    categoryId: number,
+    isChecked: boolean,
+  ) => {
     const currentIds = new Set(gif.categories.map((category) => category.id));
     if (isChecked) {
       currentIds.add(categoryId);
@@ -79,7 +84,11 @@ export default function Gallery({
   };
 
   if (gifs.length === 0) {
-    return <p className="muted">No GIF or WebP files uploaded yet. Drag one onto the screen to add it.</p>;
+    return (
+      <p className="muted">
+        No GIF or WebP files uploaded yet. Drag one onto the screen to add it.
+      </p>
+    );
   }
 
   return (
@@ -93,13 +102,19 @@ export default function Gallery({
               <div>
                 <h2>{gif.originalName}</h2>
                 <p className="muted">
-                  {formatBytes(gif.sizeBytes)} · Uploaded {formatDate(gif.createdAt)}
+                  {formatBytes(gif.sizeBytes)} · Uploaded{" "}
+                  {formatDate(gif.createdAt)}
                 </p>
-                {copiedSlug === gif.slug ? <span className="copy-feedback">Copied to clipboard</span> : null}
+                {copiedSlug === gif.slug ? (
+                  <span className="copy-feedback">Copied to clipboard</span>
+                ) : null}
               </div>
               <div className="actions">
-                <button type="button" onClick={() => handleCopy(gif.slug, gif.shareUrl)}>
-                  {copiedSlug === gif.slug ? 'Copied' : 'Copy link'}
+                <button
+                  type="button"
+                  onClick={() => handleCopy(gif.slug, gif.shareUrl)}
+                >
+                  {copiedSlug === gif.slug ? "Copied" : "Copy link"}
                 </button>
                 <button
                   type="button"
@@ -107,7 +122,7 @@ export default function Gallery({
                   onClick={() => onDelete(gif.slug, gif.originalName)}
                   disabled={deletingSlug === gif.slug}
                 >
-                  {deletingSlug === gif.slug ? 'Deleting…' : 'Delete'}
+                  {deletingSlug === gif.slug ? "Deleting…" : "Delete"}
                 </button>
               </div>
               <div className="gif-categories">
@@ -117,15 +132,27 @@ export default function Gallery({
                     <div className="category-selector">
                       {categories.map((category) => {
                         const inputId = `gif-${gif.slug}-category-${category.id}`;
-                        const isChecked = gif.categories.some((assigned) => assigned.id === category.id);
+                        const isChecked = gif.categories.some(
+                          (assigned) => assigned.id === category.id,
+                        );
                         return (
-                          <label key={category.id} htmlFor={inputId} className="category-selector__option">
+                          <label
+                            key={category.id}
+                            htmlFor={inputId}
+                            className="category-selector__option"
+                          >
                             <input
                               id={inputId}
                               type="checkbox"
                               checked={isChecked}
                               disabled={isUpdating}
-                              onChange={(event) => handleCategoryToggle(gif, category.id, event.target.checked)}
+                              onChange={(event) =>
+                                handleCategoryToggle(
+                                  gif,
+                                  category.id,
+                                  event.target.checked,
+                                )
+                              }
                             />
                             <span>{category.name}</span>
                           </label>
@@ -140,14 +167,20 @@ export default function Gallery({
                           </span>
                         ))
                       ) : (
-                        <span className="muted category-tags__empty">No categories assigned.</span>
+                        <span className="muted category-tags__empty">
+                          No categories assigned.
+                        </span>
                       )}
                     </div>
                   </>
                 ) : (
-                  <p className="muted gif-categories__empty">Create a category above to start tagging.</p>
+                  <p className="muted gif-categories__empty">
+                    Create a category above to start tagging.
+                  </p>
                 )}
-                {isUpdating ? <p className="muted gif-categories__status">Updating…</p> : null}
+                {isUpdating ? (
+                  <p className="muted gif-categories__status">Updating…</p>
+                ) : null}
               </div>
             </div>
           </article>

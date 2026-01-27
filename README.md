@@ -24,21 +24,59 @@ A simple web application for managing, categorizing, and viewing your personal c
 
 ## Environment Configuration
 
-Create a `.env` file in the root directory (copy from `.env.example`):
+This project is split into a **backend** and a **frontend**, each requiring its own configuration.
+
+### Backend
+
+Create a `.env` file in the `backend/` directory:
 
 ```bash
+cd backend
 cp .env.example .env
 ```
 
-Configure the following variables:
+Common variables:
 
-```properties
-PORT=3000
-HOST=0.0.0.0
-ADMIN_USERNAME=your_admin_user
-ADMIN_PASSWORD=your_secure_password
-JWT_SECRET=your_jwt_secret_key
+| Variable            | Description                           | Default          |
+| :------------------ | :------------------------------------ | :--------------- |
+| `PORT`              | Port for the backend server           | `3000`           |
+| `BACKEND_BASE_PATH` | Base URL path for the API             | `/gifselector`   |
+| `ADMIN_USERNAME`    | Username for login                    | `admin`          |
+| `ADMIN_PASSWORD`    | Password for login                    | `change-me`      |
+| `JWT_SECRET`        | Secret key for signing session tokens | `dev-secret-...` |
+
+### Frontend
+
+Create a `.env` file in the `frontend/` directory:
+
+```bash
+cd frontend
+cp .env.example .env
 ```
+
+Available options:
+
+| Variable                   | Description                               | Example |
+| :------------------------- | :---------------------------------------- | :------ |
+| `VITE_DEFAULT_CATEGORY_ID` | (Optional) Category ID to load by default | `5`     |
+
+### Docker Runtime Variables
+
+When running with Docker, you can pass these environment variables to the container to configure the instance at runtime.
+
+Example:
+
+```bash
+docker run -e PORT=8080 -e ADMIN_PASSWORD=supersecure ... gifselector
+```
+
+**Key Docker Variables:**
+
+- `PORT`: Listen port inside container.
+- `ADMIN_USERNAME`: Admin User.
+- `ADMIN_PASSWORD`: Admin Password.
+- `JWT_SECRET`: Security key.
+- `UPLOAD_DIR`: Path to store uploads (default: `/app/backend/uploads`).
 
 ## Running the Project
 
