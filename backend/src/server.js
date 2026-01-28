@@ -1,25 +1,25 @@
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const cookieParser = require('cookie-parser');
-const config = require('./config');
-const routes = require('./routes');
+const express = require("express");
+const path = require("path");
+const fs = require("fs");
+const cookieParser = require("cookie-parser");
+const config = require("./config");
+const routes = require("./routes");
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
 
 app.use(cookieParser());
 app.use(config.BASE_PATH, express.json());
 
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
-  const clientIp = req.ip || req.connection?.remoteAddress || 'unknown-ip';
-  const referer = req.get('referer') || req.get('referrer') || 'no-referer';
-  const userAgent = req.get('user-agent') || 'no-user-agent';
+  const clientIp = req.ip || req.connection?.remoteAddress || "unknown-ip";
+  const referer = req.get("referer") || req.get("referrer") || "no-referer";
+  const userAgent = req.get("user-agent") || "no-user-agent";
   console.log(
-    `[${timestamp}] ${req.method} ${req.originalUrl} from ${clientIp} referer=${referer} ua=${userAgent}`
+    `[${timestamp}] ${req.method} ${req.originalUrl} from ${clientIp} referer=${referer} ua=${userAgent}`,
   );
   next();
 });
@@ -28,8 +28,23 @@ if (fs.existsSync(config.FRONTEND_DIST)) {
   app.use(
     config.BASE_PATH,
     express.static(config.FRONTEND_DIST, {
-      index: false
-    })
+      index: false,
+      maxAge: "1y",
+      immutable: true,
+      setHeaders: (res, filePath) => {
+        // Aggressive caching for all static assets
+        if (
+          filePath.match(
+            /\.(gif|webp|jpg|jpeg|png|svg|ico|woff|woff2|ttf|eot)$/i,
+          )
+        ) {
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+        } else if (filePath.match(/\.(js|css)$/i)) {
+          // Cache JS and CSS for 1 year (they should have content hashes)
+          res.set("Cache-Control", "public, max-age=31536000, immutable");
+        }
+      },
+    }),
   );
 }
 
@@ -37,24 +52,24 @@ app.use(config.BASE_PATH, routes);
 
 function serveFrontend(req, res) {
   if (!fs.existsSync(config.FRONTEND_DIST)) {
-    return res.status(404).send('Frontend build not found.');
+    return res.status(404).send("Frontend build not found.");
   }
-  return res.sendFile(path.join(config.FRONTEND_DIST, 'index.html'));
+  return res.sendFile(path.join(config.FRONTEND_DIST, "index.html"));
 }
 
 app.get(config.BASE_PATH, serveFrontend);
 
 app.get(`${config.BASE_PATH}/:rest(*)`, (req, res, next) => {
-  const relativePath = `/${req.params.rest || ''}`;
-  if (relativePath.startsWith('/api') || relativePath.startsWith('/share')) {
+  const relativePath = `/${req.params.rest || ""}`;
+  if (relativePath.startsWith("/api") || relativePath.startsWith("/share")) {
     return next();
   }
-  return res.status(404).send('Not Found');
+  return res.status(404).send("Not Found");
 });
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: 'Internal server error.' });
+  res.status(500).json({ error: "Internal server error." });
 });
 
 const server = app.listen(port, () => {
@@ -68,6 +83,6 @@ function shutdown(signal) {
   });
 }
 
-['SIGINT', 'SIGTERM'].forEach((signal) => {
+["SIGINT", "SIGTERM"].forEach((signal) => {
   process.once(signal, () => shutdown(signal));
 });

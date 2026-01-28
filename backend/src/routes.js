@@ -278,6 +278,11 @@ async function serveSharedGif(req, res, next) {
     const mimeType =
       gif.mimeType || EXTENSION_MIME_MAP[storedExtension] || "image/gif";
     res.type(mimeType);
+    // Aggressive caching: Cache for 1 year (31536000 seconds)
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      Expires: new Date(Date.now() + 31536000000).toUTCString(),
+    });
     return res.sendFile(filePath);
   } catch (error) {
     return next(error);
