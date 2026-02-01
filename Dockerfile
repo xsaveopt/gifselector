@@ -24,8 +24,12 @@ RUN set -xe \
     # install conversion dependencies
     && apt update \
     && apt install -y --no-install-recommends \
+        ca-certificates \
+        curl \
         ffmpeg \
         imagemagick \
+    && curl -fsSL -o /usr/local/bin/gallery-dl 'https://github.com/mikf/gallery-dl/releases/download/v1.31.5/gallery-dl.bin' \
+    && chmod +x /usr/local/bin/gallery-dl \
     # update npm
     && npm i -g npm \
     # make entrypoint executable
