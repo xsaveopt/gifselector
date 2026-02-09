@@ -2,7 +2,7 @@
 *.7z
 *.zst
 **/.DS_Store
-backend/data/*.db*
+backend/data/**
 backend/node_modules/
 backend/uploads/
 frontend/dist/

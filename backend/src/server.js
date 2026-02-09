@@ -4,6 +4,8 @@ const fs = require("fs");
 const cookieParser = require("cookie-parser");
 const config = require("./config");
 const routes = require("./routes");
+const logger = require("./logger");
+const stats = require("./stats");
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -14,15 +16,22 @@ app.use(cookieParser());
 app.use(config.BASE_PATH, express.json());
 
 app.use((req, res, next) => {
-  const timestamp = new Date().toISOString();
-  const clientIp = req.ip || req.connection?.remoteAddress || "unknown-ip";
-  const referer = req.get("referer") || req.get("referrer") || "no-referer";
-  const userAgent = req.get("user-agent") || "no-user-agent";
-  console.log(
-    `[${timestamp}] ${req.method} ${req.originalUrl} from ${clientIp} referer=${referer} ua=${userAgent}`,
-  );
+  logger.logRequest(req);
   next();
 });
+
+if (config.ENABLE_FILE_LOGGING) {
+  // Update statistics every hour
+  setInterval(
+    () => {
+      stats.processStats();
+    },
+    60 * 60 * 1000,
+  );
+
+  // Also run once on startup to ensure stats file exists if logs exist
+  stats.processStats();
+}
 
 if (fs.existsSync(config.FRONTEND_DIST)) {
   app.use(
