@@ -22,6 +22,12 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
 
+const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || "5", 10);
+const LOCKOUT_DURATION_MS = parseInt(
+  process.env.LOCKOUT_DURATION_MS || "300000",
+  10,
+); // 5 minutes
+
 function ensureAbsolutePath(label, targetPath) {
   if (!targetPath) {
     throw new Error(`${label} must be provided as an absolute path.`);
@@ -73,6 +79,8 @@ module.exports = {
   JWT_SECRET,
   ADMIN_USERNAME,
   ADMIN_PASSWORD,
+  MAX_LOGIN_ATTEMPTS,
+  LOCKOUT_DURATION_MS,
   FRONTEND_DIST,
   UPLOAD_DIR: resolvedUploadDir,
   DATA_DIR: resolvedDataDir,

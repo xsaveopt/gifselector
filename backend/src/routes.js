@@ -14,6 +14,9 @@ const {
   issueToken,
   cookieOptions,
   verifyToken,
+  checkLoginRateLimit,
+  recordFailedLogin,
+  recordSuccessfulLogin,
 } = require("./auth");
 const {
   addGif,
@@ -87,6 +90,11 @@ function buildShareUrl(req, slug, filename) {
 }
 
 router.post("/api/login", express.json(), (req, res) => {
+  const rateLimitStatus = checkLoginRateLimit(req);
+  if (!rateLimitStatus.allowed) {
+    return res.status(429).json({ error: "Blocked" });
+  }
+
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res
@@ -94,8 +102,14 @@ router.post("/api/login", express.json(), (req, res) => {
       .json({ error: "Username and password are required." });
   }
   if (!credentialsAreValid(username, password)) {
+    const status = recordFailedLogin(req);
+    if (status.blocked) {
+      return res.status(429).json({ error: "Blocked" });
+    }
     return res.status(401).json({ error: "Invalid credentials." });
   }
+
+  recordSuccessfulLogin(req);
   const token = issueToken(username);
   res.cookie("authToken", token, cookieOptions());
   return res.json({ success: true });
