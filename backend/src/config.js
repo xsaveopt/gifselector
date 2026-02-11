@@ -28,6 +28,9 @@ const LOCKOUT_DURATION_MS = parseInt(
   10,
 ); // 5 minutes
 
+const PUBLIC_GIF_CATEGORY = process.env.PUBLIC_GIF_CATEGORY;
+const PUBLIC_API_SPEED_LIMIT = 1024 * 1024; // 1MB/s
+
 function ensureAbsolutePath(label, targetPath) {
   if (!targetPath) {
     throw new Error(`${label} must be provided as an absolute path.`);
@@ -81,6 +84,8 @@ module.exports = {
   ADMIN_PASSWORD,
   MAX_LOGIN_ATTEMPTS,
   LOCKOUT_DURATION_MS,
+  PUBLIC_GIF_CATEGORY,
+  PUBLIC_API_SPEED_LIMIT,
   FRONTEND_DIST,
   UPLOAD_DIR: resolvedUploadDir,
   DATA_DIR: resolvedDataDir,

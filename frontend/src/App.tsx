@@ -6,6 +6,7 @@ import {
     deleteGif,
     fetchCategories,
     fetchGifs,
+    fetchPublicGifs,
     getSession,
     importGifs,
     login,
@@ -54,6 +55,10 @@ function formatBytes(bytes: number) {
 }
 
 export default function App() {
+  const base = import.meta.env.BASE_URL;
+  const publicPath = base.endsWith("/") ? `${base}public` : `${base}/public`;
+  const isPublicView = window.location.pathname.startsWith(publicPath);
+
   const [session, setSession] = useState<SessionState>({
     authenticated: false,
   });
@@ -154,6 +159,19 @@ export default function App() {
   }, [loadCategories, loadGifs]);
 
   const loadSession = useCallback(async () => {
+    if (isPublicView) {
+      try {
+        const data = await fetchPublicGifs();
+        setGifs(data.gifs ?? []);
+        setTotalCount(data.gifs?.length ?? 0);
+      } catch (err) {
+        console.error("Failed to load public gifs", err);
+      } finally {
+        setIsSessionLoading(false);
+      }
+      return;
+    }
+
     try {
       const result = await getSession();
       setSession(result);
@@ -284,20 +302,25 @@ export default function App() {
       event.stopPropagation();
       setDragDepth(0);
       setIsDragging(false);
+      if (isPublicView) return;
       await handleFiles(event.dataTransfer.files);
     },
-    [handleFiles],
+    [handleFiles, isPublicView],
   );
 
-  const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
-    if (!event.dataTransfer.types.includes("Files")) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    setDragDepth((value) => value + 1);
-    setIsDragging(true);
-  }, []);
+  const handleDragEnter = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!event.dataTransfer.types.includes("Files")) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (isPublicView) return;
+      setDragDepth((value) => value + 1);
+      setIsDragging(true);
+    },
+    [isPublicView],
+  );
 
   const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!event.dataTransfer.types.includes("Files")) {
@@ -432,6 +455,55 @@ export default function App() {
     return (
       <div className="app-shell">
         <p>Loading…</p>
+      </div>
+    );
+  }
+
+  if (isPublicView) {
+    return (
+      <div className="dashboard">
+        <aside className="sidebar">
+          <div className="sidebar-header">
+            <h1>gifselector</h1>
+            <p style={{ fontSize: "0.8rem", color: "#888" }}>Public Gallery</p>
+          </div>
+          <div className="filter-section">
+            <label className="filter-label">View</label>
+            <div className="view-selector">
+              <button
+                type="button"
+                className={viewMode === "grid" ? "selected" : ""}
+                onClick={() => setViewMode("grid")}
+              >
+                Grid
+              </button>
+              <button
+                type="button"
+                className={viewMode === "list" ? "selected" : ""}
+                onClick={() => setViewMode("list")}
+              >
+                List
+              </button>
+            </div>
+          </div>
+          <div className="instructions-block">
+            <p className="muted instructions">Showing {gifs.length} entries</p>
+          </div>
+        </aside>
+        <main className="dashboard-main">
+          <div className="gallery-container">
+            <Gallery
+              gifs={gifs}
+              categories={[]}
+              onDelete={async () => {}} // No-op, should be disabled by readOnly
+              deletingSlug={null}
+              onUpdateCategories={async () => false}
+              updatingCategoriesSlug={null}
+              viewMode={viewMode}
+              readOnly={true}
+            />
+          </div>
+        </main>
       </div>
     );
   }

@@ -27,6 +27,7 @@ const {
   addCategory,
   deleteCategoryById,
   setGifCategories,
+  getGifsByCategory,
 } = require("./database");
 const config = require("./config");
 const validDomains = require("./valid-domains");
@@ -92,7 +93,7 @@ function buildShareUrl(req, slug, filename) {
 router.post("/api/login", express.json(), (req, res) => {
   const rateLimitStatus = checkLoginRateLimit(req);
   if (!rateLimitStatus.allowed) {
-    return res.status(429).json({ error: "Blocked" });
+    return res.status(429).json({ error: "Invalid credentials." });
   }
 
   const { username, password } = req.body || {};
@@ -104,7 +105,7 @@ router.post("/api/login", express.json(), (req, res) => {
   if (!credentialsAreValid(username, password)) {
     const status = recordFailedLogin(req);
     if (status.blocked) {
-      return res.status(429).json({ error: "Blocked" });
+      return res.status(429).json({ error: "Invalid credentials." });
     }
     return res.status(401).json({ error: "Invalid credentials." });
   }
@@ -154,6 +155,63 @@ router.get("/api/gifs", authMiddleware, async (req, res, next) => {
     return res.json({ gifs, total: storedGifs.length });
   } catch (error) {
     return next(error);
+  }
+});
+
+// Public endpoint to list gifs in a specific category, speed limited
+router.get("/api/public/gifs", async (req, res, next) => {
+  try {
+    const categoryName = config.PUBLIC_GIF_CATEGORY;
+    if (!categoryName) {
+      return res.status(404).json({ error: "No public category configured." });
+    }
+    const gifs = await getGifsByCategory(categoryName);
+
+    const gifsWithUrls = gifs.map((g) => ({
+      ...g,
+      shareUrl: buildShareUrl(req, g.slug, g.filename),
+    }));
+
+    const jsonString = JSON.stringify({ gifs: gifsWithUrls });
+    const buffer = Buffer.from(jsonString, "utf-8");
+
+    res.setHeader("Content-Type", "application/json");
+    // Don't set Content-Length if we are manually streaming chunks sometimes,
+    // but here we know the full length so it's fine.
+    res.setHeader("Content-Length", buffer.length);
+
+    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
+    const SPEED_LIMIT = config.PUBLIC_API_SPEED_LIMIT; // 1MB/s
+
+    let offset = 0;
+
+    function sendNextChunk() {
+      if (res.writableEnded) return;
+
+      const end = Math.min(offset + CHUNK_SIZE, buffer.length);
+      const chunk = buffer.slice(offset, end);
+
+      if (chunk.length === 0) {
+        res.end();
+        return;
+      }
+
+      res.write(chunk);
+      offset = end;
+
+      if (offset < buffer.length) {
+        // Calculate delay to respect speed limit
+        // time = bytes / (bytes/sec) * 1000
+        const delayMs = (chunk.length / SPEED_LIMIT) * 1000;
+        setTimeout(sendNextChunk, delayMs);
+      } else {
+        res.end();
+      }
+    }
+
+    sendNextChunk();
+  } catch (error) {
+    next(error);
   }
 });
 

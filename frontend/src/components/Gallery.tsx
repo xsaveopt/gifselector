@@ -21,11 +21,15 @@ type CategoryOption = GifCategory;
 type GalleryProps = {
   gifs: GifItem[];
   categories: CategoryOption[];
-  onDelete: (slug: string, originalName: string) => Promise<void>;
-  deletingSlug: string | null;
-  onUpdateCategories: (slug: string, categoryIds: number[]) => Promise<boolean>;
-  updatingCategoriesSlug: string | null;
+  onDelete?: (slug: string, originalName: string) => Promise<void>;
+  deletingSlug?: string | null;
+  onUpdateCategories?: (
+    slug: string,
+    categoryIds: number[],
+  ) => Promise<boolean>;
+  updatingCategoriesSlug?: string | null;
   viewMode: "grid" | "list";
+  readOnly?: boolean;
 };
 
 function formatBytes(bytes: number) {
@@ -56,6 +60,7 @@ export default function Gallery({
   onUpdateCategories,
   updatingCategoriesSlug,
   viewMode,
+  readOnly = false,
 }: GalleryProps) {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
@@ -76,6 +81,7 @@ export default function Gallery({
     categoryId: number,
     isChecked: boolean,
   ) => {
+    if (readOnly || !onUpdateCategories) return;
     const currentIds = new Set(gif.categories.map((category) => category.id));
     if (isChecked) {
       currentIds.add(categoryId);
@@ -86,6 +92,9 @@ export default function Gallery({
   };
 
   if (gifs.length === 0) {
+    if (readOnly) {
+      return <p className="muted">No items found.</p>;
+    }
     return (
       <p className="muted">
         No GIF or WebP files uploaded yet. Drag one onto the screen to add it.
@@ -118,70 +127,76 @@ export default function Gallery({
                 >
                   {copiedSlug === gif.slug ? "Copied" : "Copy link"}
                 </button>
-                <button
-                  type="button"
-                  className="button-danger"
-                  onClick={() => onDelete(gif.slug, gif.originalName)}
-                  disabled={deletingSlug === gif.slug}
-                >
-                  {deletingSlug === gif.slug ? "Deleting…" : "Delete"}
-                </button>
+                {!readOnly && onDelete && (
+                  <button
+                    type="button"
+                    className="button-danger"
+                    onClick={() => onDelete(gif.slug, gif.originalName)}
+                    disabled={deletingSlug === gif.slug}
+                  >
+                    {deletingSlug === gif.slug ? "Deleting…" : "Delete"}
+                  </button>
+                )}
               </div>
               <div className="gif-categories">
-                <p className="muted gif-categories__label">Categories</p>
-                {categories.length > 0 ? (
+                {!readOnly ? (
                   <>
-                    <div className="category-selector">
-                      {categories.map((category) => {
-                        const inputId = `gif-${gif.slug}-category-${category.id}`;
-                        const isChecked = gif.categories.some(
-                          (assigned) => assigned.id === category.id,
-                        );
-                        return (
-                          <label
-                            key={category.id}
-                            htmlFor={inputId}
-                            className="category-selector__option"
-                          >
-                            <input
-                              id={inputId}
-                              type="checkbox"
-                              checked={isChecked}
-                              disabled={isUpdating}
-                              onChange={(event) =>
-                                handleCategoryToggle(
-                                  gif,
-                                  category.id,
-                                  event.target.checked,
-                                )
-                              }
-                            />
-                            <span>{category.name}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                    <div className="category-tags">
-                      {gif.categories.length > 0 ? (
-                        gif.categories.map((category) => (
-                          <span key={category.id} className="category-tag">
-                            {category.name}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="muted category-tags__empty">
-                          No categories assigned.
-                        </span>
-                      )}
-                    </div>
+                    <p className="muted gif-categories__label">Categories</p>
+                    {categories.length > 0 ? (
+                      <>
+                        <div className="category-selector">
+                          {categories.map((category) => {
+                            const inputId = `gif-${gif.slug}-category-${category.id}`;
+                            const isChecked = gif.categories.some(
+                              (assigned) => assigned.id === category.id,
+                            );
+                            return (
+                              <label
+                                key={category.id}
+                                htmlFor={inputId}
+                                className="category-selector__option"
+                              >
+                                <input
+                                  id={inputId}
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={isUpdating}
+                                  onChange={(event) =>
+                                    handleCategoryToggle(
+                                      gif,
+                                      category.id,
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span>{category.name}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <div className="category-tags">
+                          {gif.categories.length > 0 ? (
+                            gif.categories.map((category) => (
+                              <span key={category.id} className="category-tag">
+                                {category.name}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="muted category-tags__empty">
+                              No categories assigned.
+                            </span>
+                          )}
+                        </div>
+                      </>
+                    ) : (
+                      <p className="muted gif-categories__empty">
+                        Create a category above to start tagging.
+                      </p>
+                    )}
+                    {isUpdating ? (
+                      <p className="muted gif-categories__status">Updating…</p>
+                    ) : null}
                   </>
-                ) : (
-                  <p className="muted gif-categories__empty">
-                    Create a category above to start tagging.
-                  </p>
-                )}
-                {isUpdating ? (
-                  <p className="muted gif-categories__status">Updating…</p>
                 ) : null}
               </div>
             </div>

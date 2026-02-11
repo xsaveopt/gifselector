@@ -73,6 +73,10 @@ app.get(`${config.BASE_PATH}/:rest(*)`, (req, res, next) => {
   if (relativePath.startsWith("/api") || relativePath.startsWith("/share")) {
     return next();
   }
+  // Serve the frontend index.html for client-side routed paths like /public
+  if (relativePath.startsWith("/public")) {
+    return serveFrontend(req, res);
+  }
   return res.status(404).send("Not Found");
 });
 

@@ -1,9 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const initSqlJs = require('sql.js');
+const fs = require("fs");
+const path = require("path");
+const initSqlJs = require("sql.js");
 
-const dbPath = path.resolve(__dirname, '../data/gifselector.db');
-const sqlJsDistDir = path.dirname(require.resolve('sql.js/dist/sql-wasm.wasm'));
+const dbPath = path.resolve(__dirname, "../data/gifselector.db");
+const sqlJsDistDir = path.dirname(require.resolve("sql.js/dist/sql-wasm.wasm"));
 let dbInstancePromise;
 
 function locateSqlJsFile(file) {
@@ -15,7 +15,7 @@ async function initialiseDatabase() {
   const existingFile = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : null;
   const db = existingFile ? new SQL.Database(existingFile) : new SQL.Database();
 
-  db.run('PRAGMA foreign_keys = ON');
+  db.run("PRAGMA foreign_keys = ON");
 
   db.run(`
     CREATE TABLE IF NOT EXISTS gifs (
@@ -74,11 +74,11 @@ async function addGif({ slug, filename, originalName, mimeType, sizeBytes }) {
     VALUES (:slug, :filename, :originalName, :mimeType, :sizeBytes)
   `);
   stmt.run({
-    ':slug': slug,
-    ':filename': filename,
-    ':originalName': originalName,
-    ':mimeType': mimeType,
-    ':sizeBytes': sizeBytes
+    ":slug": slug,
+    ":filename": filename,
+    ":originalName": originalName,
+    ":mimeType": mimeType,
+    ":sizeBytes": sizeBytes,
   });
   stmt.free();
   persistDatabase(db);
@@ -108,7 +108,7 @@ async function listGifs() {
         c.name AS categoryName
       FROM gif_categories gc
       INNER JOIN categories c ON c.id = gc.category_id
-      WHERE gc.gif_id IN (${placeholders.join(', ')})
+      WHERE gc.gif_id IN (${placeholders.join(", ")})
       ORDER BY c.name COLLATE NOCASE
     `;
     const relationStmt = db.prepare(relationQuery);
@@ -123,7 +123,9 @@ async function listGifs() {
       if (!assignments.has(row.gifId)) {
         assignments.set(row.gifId, []);
       }
-      assignments.get(row.gifId).push({ id: row.categoryId, name: row.categoryName });
+      assignments
+        .get(row.gifId)
+        .push({ id: row.categoryId, name: row.categoryName });
     }
     relationStmt.free();
     results.forEach((gif) => {
@@ -142,7 +144,7 @@ async function findGifBySlug(slug) {
     WHERE slug = :slug
     LIMIT 1
   `);
-  stmt.bind({ ':slug': slug });
+  stmt.bind({ ":slug": slug });
   const gif = stmt.step() ? stmt.getAsObject() : null;
   stmt.free();
   return gif;
@@ -154,7 +156,7 @@ async function deleteGifBySlug(slug) {
     DELETE FROM gifs
     WHERE slug = :slug
   `);
-  stmt.run({ ':slug': slug });
+  stmt.run({ ":slug": slug });
   stmt.free();
   const modified = db.getRowsModified ? db.getRowsModified() : 0;
   if (modified > 0) {
@@ -189,10 +191,10 @@ async function listCategories() {
 }
 
 async function addCategory(name) {
-  const trimmedName = (name || '').trim();
+  const trimmedName = (name || "").trim();
   if (!trimmedName) {
-    const error = new Error('Category name is required.');
-    error.code = 'CATEGORY_NAME_REQUIRED';
+    const error = new Error("Category name is required.");
+    error.code = "CATEGORY_NAME_REQUIRED";
     throw error;
   }
   const { db } = await getDatabase();
@@ -201,7 +203,7 @@ async function addCategory(name) {
       INSERT INTO categories (name)
       VALUES (:name)
     `);
-    stmt.run({ ':name': trimmedName });
+    stmt.run({ ":name": trimmedName });
     stmt.free();
     const fetchStmt = db.prepare(`
       SELECT id, name, created_at AS createdAt
@@ -217,9 +219,9 @@ async function addCategory(name) {
     }
     return null;
   } catch (error) {
-    if (error?.message?.includes('UNIQUE')) {
-      const duplicateError = new Error('Category name already exists.');
-      duplicateError.code = 'CATEGORY_NAME_DUPLICATE';
+    if (error?.message?.includes("UNIQUE")) {
+      const duplicateError = new Error("Category name already exists.");
+      duplicateError.code = "CATEGORY_NAME_DUPLICATE";
       throw duplicateError;
     }
     throw error;
@@ -232,14 +234,14 @@ async function deleteCategoryById(categoryId) {
     DELETE FROM gif_categories
     WHERE category_id = :id
   `);
-  cleanupStmt.run({ ':id': categoryId });
+  cleanupStmt.run({ ":id": categoryId });
   cleanupStmt.free();
   const relationsModified = db.getRowsModified ? db.getRowsModified() : 0;
   const stmt = db.prepare(`
     DELETE FROM categories
     WHERE id = :id
   `);
-  stmt.run({ ':id': categoryId });
+  stmt.run({ ":id": categoryId });
   stmt.free();
   const modified = db.getRowsModified ? db.getRowsModified() : 0;
   if (modified > 0 || relationsModified > 0) {
@@ -257,7 +259,7 @@ async function setGifCategories(slug, categoryIds) {
     WHERE slug = :slug
     LIMIT 1
   `);
-  lookupStmt.bind({ ':slug': slug });
+  lookupStmt.bind({ ":slug": slug });
   const gifRow = lookupStmt.step() ? lookupStmt.getAsObject() : null;
   lookupStmt.free();
   if (!gifRow) {
@@ -265,7 +267,11 @@ async function setGifCategories(slug, categoryIds) {
   }
 
   const uniqueIds = Array.from(
-    new Set((Array.isArray(categoryIds) ? categoryIds : []).map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0))
+    new Set(
+      (Array.isArray(categoryIds) ? categoryIds : [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
   );
 
   let validatedCategories = [];
@@ -275,7 +281,7 @@ async function setGifCategories(slug, categoryIds) {
     const validateStmt = db.prepare(`
       SELECT id, name
       FROM categories
-      WHERE id IN (${placeholders.join(', ')})
+      WHERE id IN (${placeholders.join(", ")})
     `);
     const params = {};
     uniqueIds.forEach((value, index) => {
@@ -289,20 +295,23 @@ async function setGifCategories(slug, categoryIds) {
     }
     validateStmt.free();
     if (found.size !== uniqueIds.length) {
-      const error = new Error('One or more categories do not exist.');
-      error.code = 'CATEGORY_NOT_FOUND';
+      const error = new Error("One or more categories do not exist.");
+      error.code = "CATEGORY_NOT_FOUND";
       throw error;
     }
-    validatedCategories = uniqueIds.map((id) => ({ id, name: found.get(id) || '' }));
+    validatedCategories = uniqueIds.map((id) => ({
+      id,
+      name: found.get(id) || "",
+    }));
   }
 
-  db.run('BEGIN TRANSACTION');
+  db.run("BEGIN TRANSACTION");
   try {
     const deleteStmt = db.prepare(`
       DELETE FROM gif_categories
       WHERE gif_id = :gifId
     `);
-    deleteStmt.run({ ':gifId': gifRow.id });
+    deleteStmt.run({ ":gifId": gifRow.id });
     deleteStmt.free();
 
     if (uniqueIds.length > 0) {
@@ -311,19 +320,83 @@ async function setGifCategories(slug, categoryIds) {
         VALUES (:gifId, :categoryId)
       `);
       uniqueIds.forEach((categoryId) => {
-        insertStmt.run({ ':gifId': gifRow.id, ':categoryId': categoryId });
+        insertStmt.run({ ":gifId": gifRow.id, ":categoryId": categoryId });
       });
       insertStmt.free();
     }
 
-    db.run('COMMIT');
+    db.run("COMMIT");
   } catch (error) {
-    db.run('ROLLBACK');
+    db.run("ROLLBACK");
     throw error;
   }
 
   persistDatabase(db);
   return validatedCategories;
+}
+
+async function getGifsByCategory(categoryIdentifier) {
+  const { db } = await getDatabase();
+
+  // Decide whether to query by ID or Name based on input format
+  // If it looks like a number, check both ID and Name
+  const isNumeric = /^\d+$/.test(String(categoryIdentifier));
+  const whereClause = isNumeric
+    ? "(c.id = :val OR c.name = :val)"
+    : "c.name = :val";
+
+  const stmt = db.prepare(`
+    SELECT g.id, g.slug, g.filename, g.original_name AS originalName, g.mime_type AS mimeType, g.size_bytes AS sizeBytes, g.created_at AS createdAt
+    FROM gifs g
+    JOIN gif_categories gc ON g.id = gc.gif_id
+    JOIN categories c ON gc.category_id = c.id
+    WHERE ${whereClause}
+    ORDER BY datetime(g.created_at) DESC
+  `);
+  stmt.bind({ ":val": categoryIdentifier });
+  const results = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    row.categories = []; // Initialize empty array
+    results.push(row);
+  }
+  stmt.free();
+
+  if (results.length > 0) {
+    const placeholders = results.map((_, index) => `:gifId${index}`);
+    const relationQuery = `
+      SELECT
+        gc.gif_id AS gifId,
+        c.id AS categoryId,
+        c.name AS categoryName
+      FROM gif_categories gc
+      INNER JOIN categories c ON c.id = gc.category_id
+      WHERE gc.gif_id IN (${placeholders.join(", ")})
+      ORDER BY c.name COLLATE NOCASE
+    `;
+    const relationStmt = db.prepare(relationQuery);
+    const params = {};
+    results.forEach((gif, index) => {
+      params[`:gifId${index}`] = gif.id;
+    });
+    relationStmt.bind(params);
+    const assignments = new Map();
+    while (relationStmt.step()) {
+      const row = relationStmt.getAsObject();
+      if (!assignments.has(row.gifId)) {
+        assignments.set(row.gifId, []);
+      }
+      assignments
+        .get(row.gifId)
+        .push({ id: row.categoryId, name: row.categoryName });
+    }
+    relationStmt.free();
+    results.forEach((gif) => {
+      gif.categories = assignments.get(gif.id) || [];
+    });
+  }
+
+  return results;
 }
 
 module.exports = {
@@ -334,5 +407,6 @@ module.exports = {
   listCategories,
   addCategory,
   deleteCategoryById,
-  setGifCategories
+  setGifCategories,
+  getGifsByCategory,
 };
