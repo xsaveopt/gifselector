@@ -180,6 +180,13 @@ router.get("/api/public/gifs", async (req, res, next) => {
     // but here we know the full length so it's fine.
     res.setHeader("Content-Length", buffer.length);
 
+    // Aggressive caching: Cache for 1 year (31536000 seconds)
+    // Same as served media files to ensure consistent behavior
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      Expires: new Date(Date.now() + 31536000000).toUTCString(),
+    });
+
     const CHUNK_SIZE = 16 * 1024; // 16KB chunks
     const SPEED_LIMIT = config.PUBLIC_API_SPEED_LIMIT; // 1MB/s
 
