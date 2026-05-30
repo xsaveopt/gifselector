@@ -1,5 +1,5 @@
 # build frontend and install backend dependencies
-FROM node:24 AS build
+FROM node:26 AS build
 WORKDIR /app
 
 COPY . .
@@ -10,7 +10,7 @@ RUN set -xe \
     && npm run build --prefix frontend
 
 # copy built assets and backend to a minimal image
-FROM node:24-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /app
 
 COPY --from=build /app/backend/ ./backend
