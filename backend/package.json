@@ -12,12 +12,12 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.0.0",
-    "nanoid": "^5.0.7",
-    "sql.js": "^1.11.0"
+    "multer": "^2.1.1",
+    "nanoid": "^5.1.11",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.14"
   },
   "volta": {
     "node": "24.12.0"
