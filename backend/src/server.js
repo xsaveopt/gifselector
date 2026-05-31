@@ -76,12 +76,14 @@ function serveFrontend(req, res) {
 
 app.get(config.BASE_PATH, serveFrontend);
 
-app.get(`${config.BASE_PATH}/:rest(*)`, (req, res, next) => {
-  const relativePath = `/${req.params.rest || ""}`;
+app.get(`${config.BASE_PATH}/*rest`, (req, res, next) => {
+  const rest = Array.isArray(req.params.rest)
+    ? req.params.rest.join("/")
+    : req.params.rest || "";
+  const relativePath = `/${rest}`;
   if (relativePath.startsWith("/api") || relativePath.startsWith("/share")) {
     return next();
   }
-  // Serve the frontend index.html for client-side routed paths like /public
   if (relativePath.startsWith("/public")) {
     return serveFrontend(req, res);
   }
