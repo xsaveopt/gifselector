@@ -6,6 +6,7 @@ COPY . .
 RUN set -xe \
     && npm install --prefix backend --omit=dev \
     && npm install --prefix frontend \
+    && npm audit --prefix frontend --audit-level high \
     && npm run build --prefix frontend
 
 FROM node:26-slim AS runner
