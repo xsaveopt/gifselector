@@ -1,8 +1,5 @@
 name: CI
 
-# Push to main → :dev (rolling, overwritten each push). Push of v*.*.* tag →
-# semver tags (1.2.3, 1.2, 1) plus :latest (skipped for pre-releases like
-# v1.2.3-rc1). Other branches/PRs just sanity-build to surface breakage.
 on:
   push:
     branches: ["**"]

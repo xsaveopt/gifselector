@@ -18,9 +18,35 @@ function normalizeBasePath(input) {
 }
 
 const BASE_PATH = normalizeBasePath(process.env.BACKEND_BASE_PATH);
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-change-me";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+const DEFAULT_JWT_SECRET = "dev-secret-change-me";
+const DEFAULT_ADMIN_PASSWORD = "change-me";
+
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "change-me";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || DEFAULT_ADMIN_PASSWORD;
+
+if (IS_PRODUCTION) {
+  const insecure = [];
+  if (JWT_SECRET === DEFAULT_JWT_SECRET) insecure.push("JWT_SECRET");
+  if (ADMIN_PASSWORD === DEFAULT_ADMIN_PASSWORD) insecure.push("ADMIN_PASSWORD");
+  if (insecure.length > 0) {
+    throw new Error(
+      `Refusing to start in production with default ${insecure.join(" and ")}. Set ${insecure.join(", ")} to strong value(s).`,
+    );
+  }
+}
+
+function parseTrustProxy(value) {
+  if (value === undefined || value === "") return 1;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  const asNumber = Number(value);
+  return Number.isInteger(asNumber) ? asNumber : value;
+}
+
+const TRUST_PROXY = parseTrustProxy(process.env.TRUST_PROXY);
 
 const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || "5", 10);
 const LOCKOUT_DURATION_MS = parseInt(
@@ -79,6 +105,7 @@ const FRONTEND_DIST = ensureAbsolutePath(
 
 module.exports = {
   BASE_PATH,
+  TRUST_PROXY,
   JWT_SECRET,
   ADMIN_USERNAME,
   ADMIN_PASSWORD,

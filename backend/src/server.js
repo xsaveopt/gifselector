@@ -1,6 +1,7 @@
 const express = require("express");
 const path = require("path");
 const fs = require("fs");
+const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 const config = require("./config");
 const routes = require("./routes");
@@ -10,7 +11,14 @@ const stats = require("./stats");
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.set("trust proxy", 1);
+app.set("trust proxy", config.TRUST_PROXY);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 
 app.use(cookieParser());
 app.use(config.BASE_PATH, express.json());

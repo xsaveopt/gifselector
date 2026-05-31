@@ -1,7 +1,19 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const config = require("./config");
 
 const loginAttempts = new Map();
+
+const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+const sweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, record] of loginAttempts) {
+    if (!record.lockoutUntil || record.lockoutUntil <= now) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, SWEEP_INTERVAL_MS);
+sweepTimer.unref?.();
 
 function getClientIp(req) {
   // express 'trust proxy' setting handles x-forwarded-for
@@ -62,11 +74,14 @@ function recordSuccessfulLogin(req) {
 }
 
 function issueToken(username) {
-  return jwt.sign({ username }, config.JWT_SECRET, { expiresIn: "7d" });
+  return jwt.sign({ username }, config.JWT_SECRET, {
+    expiresIn: "7d",
+    algorithm: "HS256",
+  });
 }
 
 function verifyToken(token) {
-  return jwt.verify(token, config.JWT_SECRET);
+  return jwt.verify(token, config.JWT_SECRET, { algorithms: ["HS256"] });
 }
 
 function authMiddleware(req, res, next) {
@@ -83,10 +98,20 @@ function authMiddleware(req, res, next) {
   }
 }
 
+function constantTimeEquals(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 function credentialsAreValid(username, password) {
-  return (
-    username === config.ADMIN_USERNAME && password === config.ADMIN_PASSWORD
-  );
+  const userOk = constantTimeEquals(username, config.ADMIN_USERNAME);
+  const passOk = constantTimeEquals(password, config.ADMIN_PASSWORD);
+  return userOk && passOk;
 }
 
 function cookieOptions() {

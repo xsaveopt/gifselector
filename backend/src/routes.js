@@ -31,6 +31,20 @@ const {
 } = require("./database");
 const config = require("./config");
 const validDomains = require("./valid-domains");
+const { safeFetch } = require("./net-guard");
+const { createRateLimiter } = require("./rate-limit");
+
+const publicApiLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 60,
+});
+
+function isWhitelistedUrl(url) {
+  return validDomains.some(
+    (domain) =>
+      url.hostname === domain || url.hostname.endsWith("." + domain),
+  );
+}
 
 const router = express.Router();
 
@@ -159,7 +173,7 @@ router.get("/api/gifs", authMiddleware, async (req, res, next) => {
 });
 
 // Public endpoint to list gifs in a specific category, speed limited
-router.get("/api/public/gifs", async (req, res, next) => {
+router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
   try {
     const categoryName = config.PUBLIC_GIF_CATEGORY;
     if (!categoryName) {
@@ -421,12 +435,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
         throw new Error("Invalid URL");
       }
 
-      const isAllowed = validDomains.some(
-        (domain) =>
-          url.hostname === domain || url.hostname.endsWith("." + domain),
-      );
-
-      if (!isAllowed) {
+      if (!isWhitelistedUrl(url)) {
         throw new Error("Domain not whitelisted");
       }
 
@@ -444,7 +453,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           );
 
           // Fallback: Scrape og:video or og:image
-          const pageResp = await fetch(urlStr, {
+          const pageResp = await safeFetch(urlStr, {
             headers: {
               "User-Agent":
                 "Mozilla/5.0 (compatible; GifSelector/1.0; +http://localhost)",
@@ -481,7 +490,18 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           // Handle HTML entities in URL just in case (basic)
           mediaUrl = mediaUrl.replace(/&amp;/g, "&");
 
-          const mediaResp = await fetch(mediaUrl, {
+          let parsedMediaUrl;
+          try {
+            parsedMediaUrl = new URL(mediaUrl, urlStr);
+          } catch (e) {
+            throw new Error("Invalid media URL in metadata");
+          }
+          if (!isWhitelistedUrl(parsedMediaUrl)) {
+            throw new Error("Media URL domain not whitelisted");
+          }
+          mediaUrl = parsedMediaUrl.toString();
+
+          const mediaResp = await safeFetch(mediaUrl, {
             headers: { "User-Agent": "GifSelector/1.0" },
           });
 
