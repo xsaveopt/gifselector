@@ -52,10 +52,10 @@ const MAX_LOGIN_ATTEMPTS = parseInt(process.env.MAX_LOGIN_ATTEMPTS || "5", 10);
 const LOCKOUT_DURATION_MS = parseInt(
   process.env.LOCKOUT_DURATION_MS || "300000",
   10,
-); // 5 minutes
+);
 
 const PUBLIC_GIF_CATEGORY = process.env.PUBLIC_GIF_CATEGORY;
-const PUBLIC_API_SPEED_LIMIT = 1024 * 1024; // 1MB/s
+const PUBLIC_API_SPEED_LIMIT = 1024 * 1024;
 
 function ensureAbsolutePath(label, targetPath) {
   if (!targetPath) {

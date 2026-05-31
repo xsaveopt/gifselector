@@ -16,7 +16,6 @@ const sweepTimer = setInterval(() => {
 sweepTimer.unref?.();
 
 function getClientIp(req) {
-  // express 'trust proxy' setting handles x-forwarded-for
   return req.ip;
 }
 
@@ -34,7 +33,6 @@ function checkLoginRateLimit(req) {
     return { allowed: false, remainingSeconds };
   }
 
-  // If lockout has expired, remove the record so they start fresh
   if (record.lockoutUntil && record.lockoutUntil <= now) {
     loginAttempts.delete(ip);
   }
@@ -52,7 +50,6 @@ function recordFailedLogin(req) {
     loginAttempts.set(ip, record);
   }
 
-  // If previously locked out and expired (though checkLoginRateLimit handles deletion), ensure clean state
   if (record.lockoutUntil && record.lockoutUntil <= now) {
     record.attempts = 0;
     record.lockoutUntil = null;

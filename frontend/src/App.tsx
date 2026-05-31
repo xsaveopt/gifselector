@@ -495,7 +495,7 @@ export default function App() {
             <Gallery
               gifs={gifs}
               categories={[]}
-              onDelete={async () => {}} // No-op, should be disabled by readOnly
+              onDelete={async () => {}}
               deletingSlug={null}
               onUpdateCategories={async () => false}
               updatingCategoriesSlug={null}

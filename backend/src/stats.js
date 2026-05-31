@@ -13,7 +13,6 @@ function processStats() {
     const uaCounts = {};
 
     lines.forEach((line) => {
-      // Format: [timestamp] METHOD url from IP referer=... ua=...
       const ipMatch = line.match(/from (.*?) referer=/);
       const uaMatch = line.match(/ua=(.*)$/);
 

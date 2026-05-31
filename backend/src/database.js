@@ -338,8 +338,6 @@ async function setGifCategories(slug, categoryIds) {
 async function getGifsByCategory(categoryIdentifier) {
   const { db } = await getDatabase();
 
-  // Decide whether to query by ID or Name based on input format
-  // If it looks like a number, check both ID and Name
   const isNumeric = /^\d+$/.test(String(categoryIdentifier));
   const whereClause = isNumeric
     ? "(c.id = :val OR c.name = :val)"
@@ -357,7 +355,7 @@ async function getGifsByCategory(categoryIdentifier) {
   const results = [];
   while (stmt.step()) {
     const row = stmt.getAsObject();
-    row.categories = []; // Initialize empty array
+    row.categories = [];
     results.push(row);
   }
   stmt.free();

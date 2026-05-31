@@ -29,7 +29,6 @@ app.use((req, res, next) => {
 });
 
 if (config.ENABLE_FILE_LOGGING) {
-  // Update statistics every hour
   setInterval(
     () => {
       stats.processStats();
@@ -37,7 +36,6 @@ if (config.ENABLE_FILE_LOGGING) {
     60 * 60 * 1000,
   );
 
-  // Also run once on startup to ensure stats file exists if logs exist
   stats.processStats();
 }
 
@@ -49,7 +47,6 @@ if (fs.existsSync(config.FRONTEND_DIST)) {
       maxAge: "1y",
       immutable: true,
       setHeaders: (res, filePath) => {
-        // Aggressive caching for all static assets
         if (
           filePath.match(
             /\.(gif|webp|jpg|jpeg|png|svg|ico|woff|woff2|ttf|eot)$/i,
@@ -57,7 +54,6 @@ if (fs.existsSync(config.FRONTEND_DIST)) {
         ) {
           res.set("Cache-Control", "public, max-age=31536000, immutable");
         } else if (filePath.match(/\.(js|css)$/i)) {
-          // Cache JS and CSS for 1 year (they should have content hashes)
           res.set("Cache-Control", "public, max-age=31536000, immutable");
         }
       },

@@ -400,7 +400,6 @@ button:disabled {
   border-color: #2563eb;
 }
 
-/* Dashboard Layout */
 .dashboard {
   display: flex;
   height: 100vh;
@@ -415,7 +414,6 @@ button:disabled {
   outline-offset: -4px;
 }
 
-/* Sidebar */
 .sidebar {
   width: 300px;
   background-color: #ffffff;
@@ -435,7 +433,6 @@ button:disabled {
   color: #1f2937;
 }
 
-/* Filter Section in Sidebar */
 .filter-section {
   display: flex;
   flex-direction: column;
@@ -464,7 +461,6 @@ button:disabled {
   background-size: 1.25em 1.25em;
 }
 
-/* Main Content Area */
 .dashboard-main {
   flex: 1;
   display: flex;
@@ -492,7 +488,6 @@ button:disabled {
   gap: 1rem;
 }
 
-/* Adjust reuseable components for sidebar context */
 .sidebar .category-manager {
   border: none;
   padding: 0;
@@ -508,10 +503,9 @@ button:disabled {
 }
 
 .sidebar .category-manager p.muted {
-  display: none; /* Hide helper text in sidebar to save space */
+  display: none;
 }
 
-/* Responsive */
 @media (max-width: 768px) {
   .dashboard {
     flex-direction: column;
@@ -578,7 +572,6 @@ button:disabled {
   font-feature-settings: "tnum";
 }
 
-/* View Selector */
 .view-selector {
   display: flex;
   background: #f3f4f6;
@@ -616,7 +609,6 @@ button:disabled {
   box-shadow: 0 0 0 2px #2563eb;
 }
 
-/* List View Overrides */
 .gallery--list {
   column-width: auto;
   display: flex;
@@ -654,7 +646,6 @@ button:disabled {
   padding-top: 0;
 }
 
-/* Import Box */
 .import-trigger {
   width: 100%;
   text-align: left;

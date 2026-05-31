@@ -172,7 +172,6 @@ router.get("/api/gifs", authMiddleware, async (req, res, next) => {
   }
 });
 
-// Public endpoint to list gifs in a specific category, speed limited
 router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
   try {
     const categoryName = config.PUBLIC_GIF_CATEGORY;
@@ -190,19 +189,15 @@ router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
     const buffer = Buffer.from(jsonString, "utf-8");
 
     res.setHeader("Content-Type", "application/json");
-    // Don't set Content-Length if we are manually streaming chunks sometimes,
-    // but here we know the full length so it's fine.
     res.setHeader("Content-Length", buffer.length);
 
-    // Aggressive caching: Cache for 1 year (31536000 seconds)
-    // Same as served media files to ensure consistent behavior
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
       Expires: new Date(Date.now() + 31536000000).toUTCString(),
     });
 
-    const CHUNK_SIZE = 16 * 1024; // 16KB chunks
-    const SPEED_LIMIT = config.PUBLIC_API_SPEED_LIMIT; // 1MB/s
+    const CHUNK_SIZE = 16 * 1024;
+    const SPEED_LIMIT = config.PUBLIC_API_SPEED_LIMIT;
 
     let offset = 0;
 
@@ -221,8 +216,6 @@ router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
       offset = end;
 
       if (offset < buffer.length) {
-        // Calculate delay to respect speed limit
-        // time = bytes / (bytes/sec) * 1000
         const delayMs = (chunk.length / SPEED_LIMIT) * 1000;
         setTimeout(sendNextChunk, delayMs);
       } else {
@@ -333,9 +326,7 @@ router.post("/api/upload", authMiddleware, (req, res, next) => {
         });
       })
       .catch((dbError) => {
-        fs.unlink(path.resolve(config.UPLOAD_DIR, req.file.filename), () => {
-          // best-effort cleanup
-        });
+        fs.unlink(path.resolve(config.UPLOAD_DIR, req.file.filename), () => {});
         next(dbError);
       });
   });
@@ -371,7 +362,6 @@ async function serveSharedGif(req, res, next) {
     const mimeType =
       gif.mimeType || EXTENSION_MIME_MAP[storedExtension] || "image/gif";
     res.type(mimeType);
-    // Aggressive caching: Cache for 1 year (31536000 seconds)
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
       Expires: new Date(Date.now() + 31536000000).toUTCString(),
@@ -423,7 +413,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
   }
 
   const results = [];
-  const MAX_DOWNLOAD_SIZE = 15 * 1024 * 1024; // 15MB
+  const MAX_DOWNLOAD_SIZE = 15 * 1024 * 1024;
 
   for (const urlStr of urls) {
     const result = { url: urlStr, success: false };
@@ -439,12 +429,10 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
         throw new Error("Domain not whitelisted");
       }
 
-      // Create unique temporary directory for this import item
       const tempDir = path.join(os.tmpdir(), `gifselector-import-${nanoid()}`);
       await fsPromises.mkdir(tempDir);
 
       try {
-        // Run gallery-dl to download the file(s)
         try {
           await execFilePromise("gallery-dl", ["--directory", tempDir, urlStr]);
         } catch (dlError) {
@@ -452,7 +440,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
             `[Import] gallery-dl failed for ${urlStr}, attempting fallback.`,
           );
 
-          // Fallback: Scrape og:video or og:image
           const pageResp = await safeFetch(urlStr, {
             headers: {
               "User-Agent":
@@ -466,7 +453,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
 
           const html = await pageResp.text();
 
-          // Regex to extract content from meta tags
           const extractMeta = (prop) => {
             const regex = new RegExp(
               `<meta\\s+(?:property|name)=["']${prop}["']\\s+content=["']([^"']+)["']`,
@@ -476,7 +462,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
             return match ? match[1] : null;
           };
 
-          // Prioritize video (usually mp4/better quality) then image
           let mediaUrl =
             extractMeta("og:video") ||
             extractMeta("og:video:url") ||
@@ -487,7 +472,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
             throw new Error("No media found via metadata fallback");
           }
 
-          // Handle HTML entities in URL just in case (basic)
           mediaUrl = mediaUrl.replace(/&amp;/g, "&");
 
           let parsedMediaUrl;
@@ -519,23 +503,19 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
             throw new Error("Fallback media file too large");
           }
 
-          // Guess extension
           let ext = path.extname(new URL(mediaUrl).pathname);
-          // If no extension or weird, try content-type
           if (!ext || ext.length > 5) {
             const cType = mediaResp.headers.get("content-type") || "";
             if (cType.includes("video/mp4")) ext = ".mp4";
             else if (cType.includes("image/gif")) ext = ".gif";
             else if (cType.includes("image/webp")) ext = ".webp";
           }
-          // Default if still unknown (the existing loop filters by extension anyway so this needs to be roughly correct to be picked up)
           if (!ext) ext = ".gif";
 
           const savePath = path.join(tempDir, `fallback-download${ext}`);
           await fsPromises.writeFile(savePath, Buffer.from(buffer));
         }
 
-        // Find downloaded files
         const findFiles = async (dir) => {
           const files = [];
           const entries = await fsPromises.readdir(dir, {
@@ -558,36 +538,29 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           throw new Error("No files downloaded by gallery-dl");
         }
 
-        // Process only the first valid GIF/WebP found
         let foundValid = false;
         for (const filePath of downloadedFiles) {
           if (foundValid) break;
 
           const ext = path.extname(filePath).toLowerCase();
           const isMp4 = ext === ".mp4";
-          // Check for .gif, .webp, or .mp4
           if (!ALLOWED_EXTENSIONS.has(ext) && !isMp4) {
-            continue; // Skip other files
+            continue;
           }
 
           let finalFilePath = filePath;
           let finalExt = ext;
           let finalMimeType = isMp4 ? "video/mp4" : EXTENSION_MIME_MAP[ext];
 
-          // Convert gif OR mp4 to webp
           if (finalExt === ".gif" || isMp4) {
-            // Replace extension with .webp
             const webpPath = filePath.replace(
               new RegExp(`${ext}$`, "i"),
               ".webp",
             );
             let conversionSuccess = false;
 
-            // Strategy 1: If MP4, try ffmpeg direct
             if (isMp4) {
               try {
-                // ffmpeg -i input.mp4 -vcodec libwebp -loop 0 -q:v 75 -an output.webp
-                // Removed -lossless because it's non-standard or deprecated in some ffmpeg versions (implied by -q:v)
                 await execFilePromise("ffmpeg", [
                   "-y",
                   "-i",
@@ -612,7 +585,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
               }
             }
 
-            // Strategy 2: Use ImageMagick (magick)
             if (!conversionSuccess) {
               try {
                 await execFilePromise("magick", [
@@ -625,7 +597,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                 await fsPromises.access(webpPath);
                 conversionSuccess = true;
               } catch (errMagick) {
-                // Strategy 3: Fallback to 'convert' (legacy IM)
                 try {
                   await execFilePromise("convert", [
                     filePath,
@@ -649,14 +620,11 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
               finalExt = ".webp";
               finalMimeType = "image/webp";
             } else if (isMp4) {
-              // Strategy 4 (Fallback): Convert MP4 to GIF if WebP failed
-              // This handles systems (like current brew ffmpeg) that lack libwebp support
               const gifPath = filePath.replace(
                 new RegExp(`${ext}$`, "i"),
                 ".gif",
               );
               try {
-                // ffmpeg -i input.mp4 output.gif
                 await execFilePromise("ffmpeg", [
                   "-y",
                   "-i",
@@ -668,7 +636,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                 finalFilePath = gifPath;
                 finalExt = ".gif";
                 finalMimeType = "image/gif";
-                // We successfully converted to GIF
               } catch (e) {
                 console.warn(
                   `Fallback MP4->GIF conversion failed: ${e.message}`,
@@ -678,14 +645,12 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           }
 
           if (finalExt === ".mp4") {
-            // If MP4 conversion failed or was skipped, ignore this file
-            // because we only store images/gifs.
             continue;
           }
 
           const stats = await fsPromises.stat(finalFilePath);
           if (stats.size > MAX_DOWNLOAD_SIZE) {
-            continue; // Skip if too large
+            continue;
           }
 
           const uniqueName = `${Date.now()}-${nanoid(6)}${finalExt}`;
@@ -694,7 +659,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           await fsPromises.copyFile(finalFilePath, savePath);
 
           const slug = nanoid(10);
-          // Try to get meaningful name from gallery-dl filename, else generic
           const originalName = path.basename(filePath);
 
           await addGif({
@@ -716,7 +680,6 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           );
         }
       } finally {
-        // Cleanup temp dir
         await fsPromises
           .rm(tempDir, { recursive: true, force: true })
           .catch(() => {});

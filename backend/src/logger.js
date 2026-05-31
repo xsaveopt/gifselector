@@ -16,7 +16,6 @@ function logRequest(req) {
 
   const logMessage = `[${timestamp}] ${req.method} ${target} from ${clientIp} referer=${referer} ua=${userAgent}`;
 
-  // Console logging (keeping current way)
   console.log(logMessage);
 
   if (config.ENABLE_FILE_LOGGING) {
