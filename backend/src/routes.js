@@ -96,6 +96,61 @@ const upload = multer({
   },
 });
 
+async function getFrameCount(filePath) {
+  for (const cmd of [
+    ["magick", ["identify", "-format", "%n\n", filePath]],
+    ["identify", ["-format", "%n\n", filePath]],
+  ]) {
+    try {
+      const { stdout } = await execFilePromise(cmd[0], cmd[1]);
+      const count = parseInt(stdout.trim().split("\n")[0], 10);
+      if (Number.isFinite(count)) {
+        return count;
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  return 1;
+}
+
+async function ensureAnimated(filePath) {
+  const frames = await getFrameCount(filePath);
+  if (frames > 1) {
+    return null;
+  }
+  const ext = path.extname(filePath);
+  const base = filePath.slice(0, filePath.length - ext.length);
+  const outPath = `${base}.gif`;
+  const tmpPath = `${base}-anim-${nanoid(6)}.gif`;
+  const args = [
+    filePath,
+    "-coalesce",
+    "-duplicate",
+    "1",
+    "-loop",
+    "0",
+    "-set",
+    "delay",
+    "100",
+    tmpPath,
+  ];
+  for (const cmd of ["magick", "convert"]) {
+    try {
+      await execFilePromise(cmd, args);
+      await fsPromises.access(tmpPath);
+      if (outPath !== filePath) {
+        await fsPromises.rm(filePath, { force: true }).catch(() => {});
+      }
+      await fsPromises.rename(tmpPath, outPath);
+      return outPath;
+    } catch (e) {
+      await fsPromises.rm(tmpPath, { force: true }).catch(() => {});
+    }
+  }
+  return null;
+}
+
 function buildShareUrl(req, slug, filename) {
   const extension = extensionFromFilename(filename);
   const forwardedProto = req.get("x-forwarded-proto");
@@ -301,7 +356,7 @@ router.put(
 );
 
 router.post("/api/upload", authMiddleware, (req, res, next) => {
-  upload.single("gif")(req, res, (err) => {
+  upload.single("gif")(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
       return res.status(400).json({ error: err.message });
     }
@@ -312,21 +367,38 @@ router.post("/api/upload", authMiddleware, (req, res, next) => {
       return res.status(400).json({ error: "No file uploaded." });
     }
     const slug = nanoid(10);
+    let filePath = path.resolve(config.UPLOAD_DIR, req.file.filename);
+    let filename = req.file.filename;
+    let mimeType = req.file.mimetype;
+    let sizeBytes = req.file.size;
+    try {
+      const animatedPath = await ensureAnimated(filePath);
+      if (animatedPath) {
+        filePath = animatedPath;
+        filename = path.basename(animatedPath);
+        mimeType =
+          EXTENSION_MIME_MAP[path.extname(animatedPath).toLowerCase()] ||
+          mimeType;
+      }
+      sizeBytes = (await fsPromises.stat(filePath)).size;
+    } catch (e) {
+      console.warn(`ensureAnimated failed for ${filePath}: ${e.message}`);
+    }
     return addGif({
       slug,
-      filename: req.file.filename,
+      filename,
       originalName: req.file.originalname,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
+      mimeType,
+      sizeBytes,
     })
       .then(() => {
         res.status(201).json({
           slug,
-          shareUrl: buildShareUrl(req, slug, req.file.filename),
+          shareUrl: buildShareUrl(req, slug, filename),
         });
       })
       .catch((dbError) => {
-        fs.unlink(path.resolve(config.UPLOAD_DIR, req.file.filename), () => {});
+        fs.unlink(filePath, () => {});
         next(dbError);
       });
   });
@@ -646,6 +718,19 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
 
           if (finalExt === ".mp4") {
             continue;
+          }
+
+          try {
+            const animatedPath = await ensureAnimated(finalFilePath);
+            if (animatedPath) {
+              finalFilePath = animatedPath;
+              finalExt = path.extname(animatedPath).toLowerCase();
+              finalMimeType = EXTENSION_MIME_MAP[finalExt] || finalMimeType;
+            }
+          } catch (e) {
+            console.warn(
+              `ensureAnimated failed for ${finalFilePath}: ${e.message}`,
+            );
           }
 
           const stats = await fsPromises.stat(finalFilePath);
