@@ -594,6 +594,7 @@ export default function App() {
                 placeholder={`Paste URLS from:\n${[
                   "tenor.com",
                   "giphy.com",
+                  "klipy.com",
                   "imgur.com",
                   "discord.com",
                 ].join("\n")}`}
