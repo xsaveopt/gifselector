@@ -3,11 +3,12 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic } from "sql.js";
+import config from "./config.ts";
 import { type CodedError, toError } from "./errors.ts";
 
 const require = createRequire(import.meta.url);
 
-const dbPath = path.resolve(import.meta.dirname, "../data/gifselector.db");
+const dbPath = path.join(config.DATA_DIR, "gifselector.db");
 const sqlJsDistDir = path.dirname(require.resolve("sql.js/dist/sql-wasm.wasm"));
 let dbInstancePromise: Promise<{ SQL: SqlJsStatic; db: Database }> | undefined;
 

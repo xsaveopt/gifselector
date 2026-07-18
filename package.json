@@ -8,7 +8,8 @@
     "fmt:check": "pnpm -r fmt:check",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "e2e": "pnpm --filter=./e2e e2e"
   },
   "packageManager": "pnpm@11.14.0"
 }
