@@ -29,7 +29,6 @@ import {
   addCategory,
 } from "./database.ts";
 import config from "./config.ts";
-import validDomains from "./valid-domains.ts";
 import { safeFetch } from "./net-guard.ts";
 import { createRateLimiter } from "./rate-limit.ts";
 import { toError } from "./errors.ts";
@@ -43,7 +42,7 @@ const publicApiLimiter = createRateLimiter({
 });
 
 function isWhitelistedUrl(url: URL): boolean {
-  return validDomains.some(
+  return config.ALLOWED_IMPORT_DOMAINS.some(
     (domain) => url.hostname === domain || url.hostname.endsWith("." + domain),
   );
 }

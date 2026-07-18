@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import dotenv from "dotenv";
+import defaultAllowedImportDomains from "./valid-domains.ts";
 
 dotenv.config();
 
@@ -55,6 +56,19 @@ const LOCKOUT_DURATION_MS = parseInt(process.env.LOCKOUT_DURATION_MS || "300000"
 const PUBLIC_GIF_CATEGORY = process.env.PUBLIC_GIF_CATEGORY;
 const PUBLIC_API_SPEED_LIMIT = 1024 * 1024;
 
+function parseAllowedImportDomains(value: string | undefined): string[] {
+  if (value === undefined) {
+    return defaultAllowedImportDomains;
+  }
+  const parsed = value
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0);
+  return parsed.length > 0 ? parsed : defaultAllowedImportDomains;
+}
+
+const ALLOWED_IMPORT_DOMAINS = parseAllowedImportDomains(process.env.ALLOWED_IMPORT_DOMAINS);
+
 function ensureAbsolutePath(label: string, targetPath: string | undefined): string {
   if (!targetPath) {
     throw new Error(`${label} must be provided as an absolute path.`);
@@ -106,6 +120,7 @@ export default {
   LOCKOUT_DURATION_MS,
   PUBLIC_GIF_CATEGORY,
   PUBLIC_API_SPEED_LIMIT,
+  ALLOWED_IMPORT_DOMAINS,
   FRONTEND_DIST,
   UPLOAD_DIR: resolvedUploadDir,
   DATA_DIR: resolvedDataDir,

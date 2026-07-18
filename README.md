@@ -78,6 +78,7 @@ docker run -e PORT=8080 -e ADMIN_PASSWORD=supersecure ... gifselector
 - `JWT_SECRET`: Security key.
 - `UPLOAD_DIR`: Path to store uploads (default: `/app/backend/uploads`).
 - `BACKEND_BASE_PATH`: Subdirectory where app gets served.
+- `ALLOWED_IMPORT_DOMAINS`: Comma-separated list of domains the URL importer is allowed to download from (default: `tenor.com,giphy.com,klipy.com,imgur.com,discord.com,discordapp.com,discordapp.net`). Subdomains of each entry are allowed too.
 
 ## Running the Project
 
