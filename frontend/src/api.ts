@@ -69,13 +69,10 @@ export function buildShareLink(slug: string) {
 }
 
 export async function deleteGif(slug: string) {
-  const response = await fetch(
-    `${basePath}/api/gifs/${encodeURIComponent(slug)}`,
-    {
-      method: "DELETE",
-      credentials: "include",
-    },
-  );
+  const response = await fetch(`${basePath}/api/gifs/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
   return handleResponse(response);
 }
 
@@ -110,17 +107,14 @@ export async function deleteCategory(categoryId: number) {
 }
 
 export async function updateGifCategories(slug: string, categoryIds: number[]) {
-  const response = await fetch(
-    `${basePath}/api/gifs/${encodeURIComponent(slug)}/categories`,
-    {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ categoryIds }),
+  const response = await fetch(`${basePath}/api/gifs/${encodeURIComponent(slug)}/categories`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({ categoryIds }),
+  });
   return handleResponse(response);
 }
 

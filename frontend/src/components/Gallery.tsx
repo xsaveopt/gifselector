@@ -23,10 +23,7 @@ type GalleryProps = {
   categories: CategoryOption[];
   onDelete?: (slug: string, originalName: string) => Promise<void>;
   deletingSlug?: string | null;
-  onUpdateCategories?: (
-    slug: string,
-    categoryIds: number[],
-  ) => Promise<boolean>;
+  onUpdateCategories?: (slug: string, categoryIds: number[]) => Promise<boolean>;
   updatingCategoriesSlug?: string | null;
   viewMode: "grid" | "list";
   readOnly?: boolean;
@@ -76,11 +73,7 @@ export default function Gallery({
     }
   };
 
-  const handleCategoryToggle = (
-    gif: GifItem,
-    categoryId: number,
-    isChecked: boolean,
-  ) => {
+  const handleCategoryToggle = (gif: GifItem, categoryId: number, isChecked: boolean) => {
     if (readOnly || !onUpdateCategories) return;
     const currentIds = new Set(gif.categories.map((category) => category.id));
     if (isChecked) {
@@ -113,18 +106,14 @@ export default function Gallery({
               <div>
                 <h2>{gif.originalName}</h2>
                 <p className="muted">
-                  {formatBytes(gif.sizeBytes)} · Uploaded{" "}
-                  {formatDate(gif.createdAt)}
+                  {formatBytes(gif.sizeBytes)} · Uploaded {formatDate(gif.createdAt)}
                 </p>
                 {copiedSlug === gif.slug ? (
                   <span className="copy-feedback">Copied to clipboard</span>
                 ) : null}
               </div>
               <div className="actions">
-                <button
-                  type="button"
-                  onClick={() => handleCopy(gif.slug, gif.shareUrl)}
-                >
+                <button type="button" onClick={() => handleCopy(gif.slug, gif.shareUrl)}>
                   {copiedSlug === gif.slug ? "Copied" : "Copy link"}
                 </button>
                 {!readOnly && onDelete && (
@@ -162,11 +151,7 @@ export default function Gallery({
                                   checked={isChecked}
                                   disabled={isUpdating}
                                   onChange={(event) =>
-                                    handleCategoryToggle(
-                                      gif,
-                                      category.id,
-                                      event.target.checked,
-                                    )
+                                    handleCategoryToggle(gif, category.id, event.target.checked)
                                   }
                                 />
                                 <span>{category.name}</span>
@@ -193,9 +178,7 @@ export default function Gallery({
                         Create a category above to start tagging.
                       </p>
                     )}
-                    {isUpdating ? (
-                      <p className="muted gif-categories__status">Updating…</p>
-                    ) : null}
+                    {isUpdating ? <p className="muted gif-categories__status">Updating…</p> : null}
                   </>
                 ) : null}
               </div>

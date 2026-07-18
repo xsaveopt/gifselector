@@ -1,16 +1,15 @@
-const fs = require("fs");
-const config = require("./config");
+import fs from "node:fs";
+import type { Request } from "express";
+import config from "./config.ts";
 
-function sanitize(value) {
+function sanitize(value: unknown): string {
   return String(value).replace(/[\r\n]+/g, " ");
 }
 
-function logRequest(req) {
+export function logRequest(req: Request): void {
   const timestamp = new Date().toISOString();
-  const clientIp = req.ip || req.connection?.remoteAddress || "unknown-ip";
-  const referer = sanitize(
-    req.get("referer") || req.get("referrer") || "no-referer",
-  );
+  const clientIp = req.ip || req.socket?.remoteAddress || "unknown-ip";
+  const referer = sanitize(req.get("referer") || req.get("referrer") || "no-referer");
   const userAgent = sanitize(req.get("user-agent") || "no-user-agent");
   const target = sanitize(req.originalUrl);
 
@@ -26,7 +25,3 @@ function logRequest(req) {
     }
   }
 }
-
-module.exports = {
-  logRequest,
-};

@@ -1,5 +1,17 @@
-function createRateLimiter({ windowMs, max }) {
-  const hits = new Map();
+import type { RequestHandler } from "express";
+
+interface RateLimiterOptions {
+  windowMs: number;
+  max: number;
+}
+
+interface RateBucket {
+  count: number;
+  resetAt: number;
+}
+
+export function createRateLimiter({ windowMs, max }: RateLimiterOptions): RequestHandler {
+  const hits = new Map<string, RateBucket>();
 
   const sweepTimer = setInterval(() => {
     const now = Date.now();
@@ -25,10 +37,9 @@ function createRateLimiter({ windowMs, max }) {
     if (bucket.count > max) {
       const retryAfter = Math.ceil((bucket.resetAt - now) / 1000);
       res.set("Retry-After", String(retryAfter));
-      return res.status(429).json({ error: "Too many requests." });
+      res.status(429).json({ error: "Too many requests." });
+      return;
     }
-    return next();
+    next();
   };
 }
-
-module.exports = { createRateLimiter };

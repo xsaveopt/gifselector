@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState } from "react";
 
 type LoginFormProps = {
   onSubmit: (username: string, password: string) => Promise<void>;
@@ -7,8 +7,8 @@ type LoginFormProps = {
 };
 
 export default function LoginForm({ onSubmit, isSubmitting, errorMessage }: LoginFormProps) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,7 +42,7 @@ export default function LoginForm({ onSubmit, isSubmitting, errorMessage }: Logi
         </label>
         {errorMessage ? <p className="error">{errorMessage}</p> : null}
         <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? 'Signing in…' : 'Sign in'}
+          {isSubmitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
     </div>

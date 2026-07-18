@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, useRef, useState } from 'react';
+import { ChangeEvent, DragEvent, useRef, useState } from "react";
 
 type UploadDropzoneProps = {
   onUpload: (file: File) => Promise<void>;
@@ -6,7 +6,11 @@ type UploadDropzoneProps = {
   errorMessage: string | null;
 };
 
-export default function UploadDropzone({ onUpload, isUploading, errorMessage }: UploadDropzoneProps) {
+export default function UploadDropzone({
+  onUpload,
+  isUploading,
+  errorMessage,
+}: UploadDropzoneProps) {
   const [isDraggedOver, setIsDraggedOver] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -40,34 +44,34 @@ export default function UploadDropzone({ onUpload, isUploading, errorMessage }: 
   const onFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
     await handleFiles(event.target.files);
     if (inputRef.current) {
-      inputRef.current.value = '';
+      inputRef.current.value = "";
     }
   };
 
   return (
     <div className="upload">
       <div
-        className={`dropzone${isDraggedOver ? ' dropzone-active' : ''}`}
+        className={`dropzone${isDraggedOver ? " dropzone-active" : ""}`}
         onDrop={onDrop}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         role="button"
         tabIndex={0}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
+          if (event.key === "Enter" || event.key === " ") {
             inputRef.current?.click();
           }
         }}
         onClick={() => inputRef.current?.click()}
       >
-        <p>{isUploading ? 'Uploading…' : 'Drag & drop a GIF/WebP or click to choose one.'}</p>
+        <p>{isUploading ? "Uploading…" : "Drag & drop a GIF/WebP or click to choose one."}</p>
       </div>
       <input
         ref={inputRef}
         type="file"
         accept="image/gif,image/webp"
         onChange={onFileInputChange}
-        style={{ display: 'none' }}
+        style={{ display: "none" }}
       />
       {errorMessage ? <p className="error">{errorMessage}</p> : null}
     </div>

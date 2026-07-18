@@ -1,15 +1,13 @@
-const dns = require("dns").promises;
-const net = require("net");
+import dns from "node:dns/promises";
+import net from "node:net";
 
 const MAX_REDIRECTS = 5;
 
-function ipv4ToInt(ip) {
-  return ip
-    .split(".")
-    .reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
+function ipv4ToInt(ip: string): number {
+  return ip.split(".").reduce((acc, octet) => (acc << 8) + Number(octet), 0) >>> 0;
 }
 
-function inRange(ipInt, cidr) {
+function inRange(ipInt: number, cidr: string): boolean {
   const [base, bits] = cidr.split("/");
   const mask = bits === "0" ? 0 : (~0 << (32 - Number(bits))) >>> 0;
   return (ipInt & mask) === (ipv4ToInt(base) & mask);
@@ -30,7 +28,7 @@ const BLOCKED_V4 = [
   "240.0.0.0/4",
 ];
 
-function isPrivateIp(ip) {
+export function isPrivateIp(ip: string): boolean {
   const type = net.isIP(ip);
   if (type === 4) {
     const ipInt = ipv4ToInt(ip);
@@ -51,7 +49,7 @@ function isPrivateIp(ip) {
   return true;
 }
 
-async function assertPublicHost(hostname) {
+export async function assertPublicHost(hostname: string): Promise<void> {
   if (net.isIP(hostname)) {
     if (isPrivateIp(hostname)) {
       throw new Error("Refusing to connect to private address");
@@ -69,13 +67,13 @@ async function assertPublicHost(hostname) {
   }
 }
 
-function assertSafeProtocol(url) {
+function assertSafeProtocol(url: URL): void {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`Unsupported protocol: ${url.protocol}`);
   }
 }
 
-async function safeFetch(urlStr, options = {}) {
+export async function safeFetch(urlStr: string, options: RequestInit = {}): Promise<Response> {
   let current = urlStr;
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
     const url = new URL(current);
@@ -95,5 +93,3 @@ async function safeFetch(urlStr, options = {}) {
   }
   throw new Error("Too many redirects");
 }
-
-module.exports = { safeFetch, assertPublicHost, isPrivateIp };

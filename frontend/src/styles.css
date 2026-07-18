@@ -592,14 +592,14 @@ button:disabled {
 }
 
 .view-selector button:hover:not(.selected) {
-  background: rgba(0,0,0,0.05);
+  background: rgba(0, 0, 0, 0.05);
   border-color: transparent;
 }
 
 .view-selector button.selected {
   background: #ffffff;
   color: #1f2937;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   font-weight: 600;
   border-color: transparent;
 }

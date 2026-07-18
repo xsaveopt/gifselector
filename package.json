@@ -1,0 +1,14 @@
+{
+  "name": "gifselector",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "lint": "pnpm -r lint",
+    "fmt": "pnpm -r fmt",
+    "fmt:check": "pnpm -r fmt:check",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build"
+  },
+  "packageManager": "pnpm@11.14.0"
+}

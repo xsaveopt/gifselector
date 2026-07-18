@@ -1,8 +1,32 @@
-const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
-const config = require("./config");
+import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
+import type { JwtPayload } from "jsonwebtoken";
+import type { CookieOptions, NextFunction, Request, Response } from "express";
+import config from "./config.ts";
 
-const loginAttempts = new Map();
+export interface AuthPayload extends JwtPayload {
+  username: string;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthPayload;
+    }
+  }
+}
+
+interface AttemptRecord {
+  attempts: number;
+  lockoutUntil: number | null;
+}
+
+interface RateLimitStatus {
+  allowed: boolean;
+  remainingSeconds?: number;
+}
+
+const loginAttempts = new Map<string, AttemptRecord>();
 
 const SWEEP_INTERVAL_MS = 10 * 60 * 1000;
 const sweepTimer = setInterval(() => {
@@ -15,11 +39,11 @@ const sweepTimer = setInterval(() => {
 }, SWEEP_INTERVAL_MS);
 sweepTimer.unref?.();
 
-function getClientIp(req) {
-  return req.ip;
+function getClientIp(req: Request): string {
+  return req.ip || "unknown-ip";
 }
 
-function checkLoginRateLimit(req) {
+export function checkLoginRateLimit(req: Request): RateLimitStatus {
   const ip = getClientIp(req);
   const now = Date.now();
   const record = loginAttempts.get(ip);
@@ -40,7 +64,7 @@ function checkLoginRateLimit(req) {
   return { allowed: true };
 }
 
-function recordFailedLogin(req) {
+export function recordFailedLogin(req: Request): { blocked: boolean } {
   const ip = getClientIp(req);
   const now = Date.now();
   let record = loginAttempts.get(ip);
@@ -65,37 +89,38 @@ function recordFailedLogin(req) {
   return { blocked: false };
 }
 
-function recordSuccessfulLogin(req) {
+export function recordSuccessfulLogin(req: Request): void {
   const ip = getClientIp(req);
   loginAttempts.delete(ip);
 }
 
-function issueToken(username) {
+export function issueToken(username: string): string {
   return jwt.sign({ username }, config.JWT_SECRET, {
     expiresIn: "7d",
     algorithm: "HS256",
   });
 }
 
-function verifyToken(token) {
-  return jwt.verify(token, config.JWT_SECRET, { algorithms: ["HS256"] });
+export function verifyToken(token: string): AuthPayload {
+  return jwt.verify(token, config.JWT_SECRET, { algorithms: ["HS256"] }) as AuthPayload;
 }
 
-function authMiddleware(req, res, next) {
+export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const token = req.cookies?.authToken;
   if (!token) {
-    return res.status(401).json({ error: "Unauthorized" });
+    res.status(401).json({ error: "Unauthorized" });
+    return;
   }
   try {
     const payload = verifyToken(token);
     req.user = payload;
-    return next();
-  } catch (error) {
-    return res.status(401).json({ error: "Unauthorized" });
+    next();
+  } catch {
+    res.status(401).json({ error: "Unauthorized" });
   }
 }
 
-function constantTimeEquals(a, b) {
+function constantTimeEquals(a: string, b: string): boolean {
   const bufA = Buffer.from(String(a));
   const bufB = Buffer.from(String(b));
   if (bufA.length !== bufB.length) {
@@ -105,13 +130,13 @@ function constantTimeEquals(a, b) {
   return crypto.timingSafeEqual(bufA, bufB);
 }
 
-function credentialsAreValid(username, password) {
+export function credentialsAreValid(username: string, password: string): boolean {
   const userOk = constantTimeEquals(username, config.ADMIN_USERNAME);
   const passOk = constantTimeEquals(password, config.ADMIN_PASSWORD);
   return userOk && passOk;
 }
 
-function cookieOptions() {
+export function cookieOptions(): CookieOptions {
   const secure = process.env.NODE_ENV === "production";
   return {
     httpOnly: true,
@@ -120,14 +145,3 @@ function cookieOptions() {
     path: config.BASE_PATH,
   };
 }
-
-module.exports = {
-  issueToken,
-  verifyToken,
-  authMiddleware,
-  credentialsAreValid,
-  cookieOptions,
-  checkLoginRateLimit,
-  recordFailedLogin,
-  recordSuccessfulLogin,
-};

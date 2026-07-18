@@ -2,10 +2,17 @@
   "name": "gifselector-backend",
   "version": "1.0.0",
   "description": "Backend server for gifselector app",
-  "main": "src/server.js",
+  "type": "module",
+  "main": "src/server.ts",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "nodemon src/server.js"
+    "start": "node src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "test": "node --test 'test/**/*.test.ts'",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "typecheck": "tsc"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",
@@ -18,9 +25,14 @@
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
-  },
-  "volta": {
-    "node": "24.12.0"
+    "@types/cookie-parser": "^1.4.10",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^26.1.1",
+    "@types/sql.js": "^1.4.11",
+    "oxfmt": "^0.59.0",
+    "oxlint": "^1.74.0",
+    "typescript": "^7.0.2"
   }
 }

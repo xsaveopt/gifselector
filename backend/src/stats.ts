@@ -1,7 +1,7 @@
-const fs = require("fs");
-const config = require("./config");
+import fs from "node:fs";
+import config from "./config.ts";
 
-function processStats() {
+export function processStats(): void {
   if (!config.ENABLE_FILE_LOGGING) return;
   if (!fs.existsSync(config.LOG_FILE_PATH)) return;
 
@@ -9,8 +9,8 @@ function processStats() {
     const data = fs.readFileSync(config.LOG_FILE_PATH, "utf8");
     const lines = data.split("\n").filter((line) => line.trim() !== "");
 
-    const ipCounts = {};
-    const uaCounts = {};
+    const ipCounts: Record<string, number> = {};
+    const uaCounts: Record<string, number> = {};
 
     lines.forEach((line) => {
       const ipMatch = line.match(/from (.*?) referer=/);
@@ -50,7 +50,3 @@ function processStats() {
     console.error("Error processing log statistics:", err);
   }
 }
-
-module.exports = {
-  processStats,
-};

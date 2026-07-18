@@ -1,18 +1,18 @@
 import type { DragEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    createCategory,
-    deleteCategory,
-    deleteGif,
-    fetchCategories,
-    fetchGifs,
-    fetchPublicGifs,
-    getSession,
-    importGifs,
-    login,
-    logout,
-    updateGifCategories,
-    uploadGif,
+  createCategory,
+  deleteCategory,
+  deleteGif,
+  fetchCategories,
+  fetchGifs,
+  fetchPublicGifs,
+  getSession,
+  importGifs,
+  login,
+  logout,
+  updateGifCategories,
+  uploadGif,
 } from "./api";
 import CategoryManager from "./components/CategoryManager";
 import Gallery from "./components/Gallery";
@@ -69,30 +69,24 @@ export default function App() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryError, setCategoryError] = useState<string | null>(null);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
-  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(
-    null,
-  );
-  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<
-    string | null
-  >(null);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
+  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragDepth, setDragDepth] = useState(0);
+  const [_dragDepth, setDragDepth] = useState(0);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
-  const [selectedCategory, setSelectedCategory] = useState<number | null>(
-    () => {
-      const params = new URLSearchParams(window.location.search);
-      const categoryId = params.get("category");
-      if (categoryId) {
-        return Number(categoryId);
-      }
-      const defaultId = import.meta.env.VITE_DEFAULT_CATEGORY_ID;
-      return defaultId ? Number(defaultId) : null;
-    },
-  );
+  const [selectedCategory, setSelectedCategory] = useState<number | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const categoryId = params.get("category");
+    if (categoryId) {
+      return Number(categoryId);
+    }
+    const defaultId = import.meta.env.VITE_DEFAULT_CATEGORY_ID;
+    return defaultId ? Number(defaultId) : null;
+  });
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
@@ -106,8 +100,7 @@ export default function App() {
     } else {
       params.delete("category");
     }
-    const newRelativePathQuery =
-      window.location.pathname + "?" + params.toString();
+    const newRelativePathQuery = window.location.pathname + "?" + params.toString();
     window.history.replaceState(null, "", newRelativePathQuery);
   }, [selectedCategory]);
 
@@ -118,18 +111,14 @@ export default function App() {
     if (selectedCategory === UNCATEGORIZED_ID) {
       return gifs.filter((gif) => gif.categories.length === 0);
     }
-    return gifs.filter((gif) =>
-      gif.categories.some((c) => c.id === selectedCategory),
-    );
+    return gifs.filter((gif) => gif.categories.some((c) => c.id === selectedCategory));
   }, [gifs, selectedCategory]);
 
   const stats = useMemo(() => {
     const totalSize = gifs.reduce((acc, gif) => acc + gif.sizeBytes, 0);
     const gifCount = gifs.filter((g) => g.mimeType === "image/gif").length;
     const webpCount = gifs.filter((g) => g.mimeType === "image/webp").length;
-    const uncategorizedCount = gifs.filter(
-      (g) => g.categories.length === 0,
-    ).length;
+    const uncategorizedCount = gifs.filter((g) => g.categories.length === 0).length;
     return { totalSize, gifCount, webpCount, uncategorizedCount };
   }, [gifs]);
 
@@ -137,9 +126,7 @@ export default function App() {
     try {
       const data = await fetchGifs();
       setGifs(data.gifs ?? []);
-      setTotalCount(
-        typeof data.total === "number" ? data.total : (data.gifs?.length ?? 0),
-      );
+      setTotalCount(typeof data.total === "number" ? data.total : (data.gifs?.length ?? 0));
     } catch (error) {
       console.error(error);
     }
@@ -219,9 +206,7 @@ export default function App() {
       const failures = result.results.length - successes;
 
       if (failures > 0) {
-        setImportStatus(
-          `Imported ${successes}, Passed ${failures}. Check console.`,
-        );
+        setImportStatus(`Imported ${successes}, Passed ${failures}. Check console.`);
         console.log("Import results:", result.results);
       } else {
         setImportStatus(`Successfully imported ${successes} item(s).`);
@@ -286,9 +271,7 @@ export default function App() {
         }
         await loadAdminData();
       } catch (error) {
-        setUploadError(
-          error instanceof Error ? error.message : "Upload failed.",
-        );
+        setUploadError(error instanceof Error ? error.message : "Upload failed.");
       } finally {
         setIsUploading(false);
       }
@@ -348,9 +331,7 @@ export default function App() {
 
   const handleDelete = useCallback(
     async (slug: string, name: string) => {
-      const confirmed = window.confirm(
-        `Delete "${name}"? This cannot be undone.`,
-      );
+      const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
       if (!confirmed) {
         return;
       }
@@ -360,9 +341,7 @@ export default function App() {
         await deleteGif(slug);
         await loadAdminData();
       } catch (error) {
-        setDeleteError(
-          error instanceof Error ? error.message : "Delete failed.",
-        );
+        setDeleteError(error instanceof Error ? error.message : "Delete failed.");
       } finally {
         setDeletingSlug(null);
       }
@@ -384,9 +363,7 @@ export default function App() {
         await loadCategories();
         return true;
       } catch (error) {
-        setCategoryError(
-          error instanceof Error ? error.message : "Failed to create category.",
-        );
+        setCategoryError(error instanceof Error ? error.message : "Failed to create category.");
         return false;
       } finally {
         setIsCreatingCategory(false);
@@ -410,9 +387,7 @@ export default function App() {
         await loadAdminData();
         return true;
       } catch (error) {
-        setCategoryError(
-          error instanceof Error ? error.message : "Failed to delete category.",
-        );
+        setCategoryError(error instanceof Error ? error.message : "Failed to delete category.");
         return false;
       } finally {
         setDeletingCategoryId(null);
@@ -427,22 +402,14 @@ export default function App() {
       setUpdatingCategorySlug(slug);
       try {
         const result = await updateGifCategories(slug, categoryIds);
-        const nextCategories = Array.isArray(result.categories)
-          ? result.categories
-          : [];
+        const nextCategories = Array.isArray(result.categories) ? result.categories : [];
         setGifs((current) =>
-          current.map((gif) =>
-            gif.slug === slug ? { ...gif, categories: nextCategories } : gif,
-          ),
+          current.map((gif) => (gif.slug === slug ? { ...gif, categories: nextCategories } : gif)),
         );
         await loadCategories();
         return true;
       } catch (error) {
-        setCategoryError(
-          error instanceof Error
-            ? error.message
-            : "Failed to update categories.",
-        );
+        setCategoryError(error instanceof Error ? error.message : "Failed to update categories.");
         return false;
       } finally {
         setUpdatingCategorySlug(null);
@@ -580,11 +547,7 @@ export default function App() {
         <div className="filter-section">
           <label className="filter-label">Import</label>
           {!isImportOpen ? (
-            <button
-              type="button"
-              className="import-trigger"
-              onClick={() => setIsImportOpen(true)}
-            >
+            <button type="button" className="import-trigger" onClick={() => setIsImportOpen(true)}>
               Import from URLs
             </button>
           ) : (
@@ -672,9 +635,7 @@ export default function App() {
 
       <main className="dashboard-main">
         <header className="top-bar">
-          <p className="muted">
-            Welcome back{session.username ? `, ${session.username}` : ""}.
-          </p>
+          <p className="muted">Welcome back{session.username ? `, ${session.username}` : ""}.</p>
           <button type="button" onClick={handleLogout}>
             Log out
           </button>

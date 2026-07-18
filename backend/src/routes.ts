@@ -1,65 +1,74 @@
-const express = require("express");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
-const { nanoid } = require("nanoid");
-const { execFile } = require("child_process");
-const os = require("os");
-const util = require("util");
-const fsPromises = fs.promises;
-const execFilePromise = util.promisify(execFile);
-const {
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import util from "node:util";
+import { execFile } from "node:child_process";
+import express from "express";
+import type { Request, Response } from "express";
+import multer from "multer";
+import { nanoid } from "nanoid";
+import {
   authMiddleware,
+  checkLoginRateLimit,
+  cookieOptions,
   credentialsAreValid,
   issueToken,
-  cookieOptions,
-  verifyToken,
-  checkLoginRateLimit,
   recordFailedLogin,
   recordSuccessfulLogin,
-} = require("./auth");
-const {
+  verifyToken,
+} from "./auth.ts";
+import {
   addGif,
-  listGifs,
-  findGifBySlug,
-  deleteGifBySlug,
-  listCategories,
-  addCategory,
   deleteCategoryById,
-  setGifCategories,
+  deleteGifBySlug,
+  findGifBySlug,
   getGifsByCategory,
-} = require("./database");
-const config = require("./config");
-const validDomains = require("./valid-domains");
-const { safeFetch } = require("./net-guard");
-const { createRateLimiter } = require("./rate-limit");
+  listCategories,
+  listGifs,
+  setGifCategories,
+  addCategory,
+} from "./database.ts";
+import config from "./config.ts";
+import validDomains from "./valid-domains.ts";
+import { safeFetch } from "./net-guard.ts";
+import { createRateLimiter } from "./rate-limit.ts";
+import { toError } from "./errors.ts";
+
+const fsPromises = fs.promises;
+const execFilePromise = util.promisify(execFile);
 
 const publicApiLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 60,
 });
 
-function isWhitelistedUrl(url) {
+function isWhitelistedUrl(url: URL): boolean {
   return validDomains.some(
-    (domain) =>
-      url.hostname === domain || url.hostname.endsWith("." + domain),
+    (domain) => url.hostname === domain || url.hostname.endsWith("." + domain),
   );
+}
+
+function routeParam(value: string | string[] | undefined): string {
+  if (Array.isArray(value)) {
+    return value[0] ?? "";
+  }
+  return value ?? "";
 }
 
 const router = express.Router();
 
 const ALLOWED_MIME_TYPES = new Set(["image/gif", "image/webp"]);
 const ALLOWED_EXTENSIONS = new Set([".gif", ".webp"]);
-const MIME_EXTENSION_MAP = {
+const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/gif": ".gif",
   "image/webp": ".webp",
 };
-const EXTENSION_MIME_MAP = {
+const EXTENSION_MIME_MAP: Record<string, string> = {
   ".gif": "image/gif",
   ".webp": "image/webp",
 };
 
-function resolveFileExtension(file) {
+function resolveFileExtension(file: Express.Multer.File): string {
   const originalExt = path.extname(file.originalname || "").toLowerCase();
   if (ALLOWED_EXTENSIONS.has(originalExt)) {
     return originalExt;
@@ -68,7 +77,7 @@ function resolveFileExtension(file) {
   return mappedExt || ".gif";
 }
 
-function extensionFromFilename(filename) {
+function extensionFromFilename(filename: string): string {
   const ext = path.extname(filename || "").toLowerCase();
   if (ALLOWED_EXTENSIONS.has(ext)) {
     return ext.slice(1);
@@ -77,8 +86,8 @@ function extensionFromFilename(filename) {
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, config.UPLOAD_DIR),
-  filename: (req, file, cb) => {
+  destination: (_req, _file, cb) => cb(null, config.UPLOAD_DIR),
+  filename: (_req, file, cb) => {
     const safeExt = resolveFileExtension(file);
     const uniqueName = `${Date.now()}-${nanoid(6)}${safeExt}`;
     cb(null, uniqueName);
@@ -88,33 +97,35 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: { fileSize: 15 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-      return cb(new Error("Only GIF or WebP uploads are allowed."));
+      cb(new Error("Only GIF or WebP uploads are allowed."));
+      return;
     }
     cb(null, true);
   },
 });
 
-async function getFrameCount(filePath) {
-  for (const cmd of [
+async function getFrameCount(filePath: string): Promise<number> {
+  const commands: [string, string[]][] = [
     ["magick", ["identify", "-format", "%n\n", filePath]],
     ["identify", ["-format", "%n\n", filePath]],
-  ]) {
+  ];
+  for (const [bin, args] of commands) {
     try {
-      const { stdout } = await execFilePromise(cmd[0], cmd[1]);
+      const { stdout } = await execFilePromise(bin, args);
       const count = parseInt(stdout.trim().split("\n")[0], 10);
       if (Number.isFinite(count)) {
         return count;
       }
-    } catch (e) {
+    } catch {
       continue;
     }
   }
   return 1;
 }
 
-async function ensureAnimated(filePath) {
+async function ensureAnimated(filePath: string): Promise<string | null> {
   const frames = await getFrameCount(filePath);
   if (frames > 1) {
     return null;
@@ -144,14 +155,14 @@ async function ensureAnimated(filePath) {
       }
       await fsPromises.rename(tmpPath, outPath);
       return outPath;
-    } catch (e) {
+    } catch {
       await fsPromises.rm(tmpPath, { force: true }).catch(() => {});
     }
   }
   return null;
 }
 
-function buildShareUrl(req, slug, filename) {
+function buildShareUrl(req: Request, slug: string, filename: string): string {
   const extension = extensionFromFilename(filename);
   const forwardedProto = req.get("x-forwarded-proto");
   const protocol = forwardedProto ? forwardedProto.split(",")[0] : req.protocol;
@@ -167,9 +178,7 @@ router.post("/api/login", express.json(), (req, res) => {
 
   const { username, password } = req.body || {};
   if (!username || !password) {
-    return res
-      .status(400)
-      .json({ error: "Username and password are required." });
+    return res.status(400).json({ error: "Username and password are required." });
   }
   if (!credentialsAreValid(username, password)) {
     const status = recordFailedLogin(req);
@@ -198,7 +207,7 @@ router.get("/api/session", (req, res) => {
   try {
     const payload = verifyToken(token);
     return res.json({ authenticated: true, username: payload.username });
-  } catch (error) {
+  } catch {
     return res.json({ authenticated: false });
   }
 });
@@ -284,7 +293,7 @@ router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
   }
 });
 
-router.get("/api/categories", authMiddleware, async (req, res, next) => {
+router.get("/api/categories", authMiddleware, async (_req, res, next) => {
   try {
     const categories = await listCategories();
     return res.json({ categories });
@@ -293,29 +302,25 @@ router.get("/api/categories", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.post(
-  "/api/categories",
-  authMiddleware,
-  express.json(),
-  async (req, res, next) => {
-    const { name } = req.body || {};
-    try {
-      const category = await addCategory(name);
-      if (!category) {
-        return res.status(500).json({ error: "Failed to create category." });
-      }
-      return res.status(201).json({ category });
-    } catch (error) {
-      if (error?.code === "CATEGORY_NAME_REQUIRED") {
-        return res.status(400).json({ error: error.message });
-      }
-      if (error?.code === "CATEGORY_NAME_DUPLICATE") {
-        return res.status(409).json({ error: error.message });
-      }
-      return next(error);
+router.post("/api/categories", authMiddleware, express.json(), async (req, res, next) => {
+  const { name } = req.body || {};
+  try {
+    const category = await addCategory(name);
+    if (!category) {
+      return res.status(500).json({ error: "Failed to create category." });
     }
-  },
-);
+    return res.status(201).json({ category });
+  } catch (error) {
+    const err = toError(error);
+    if (err.code === "CATEGORY_NAME_REQUIRED") {
+      return res.status(400).json({ error: err.message });
+    }
+    if (err.code === "CATEGORY_NAME_DUPLICATE") {
+      return res.status(409).json({ error: err.message });
+    }
+    return next(err);
+  }
+});
 
 router.delete("/api/categories/:id", authMiddleware, async (req, res, next) => {
   const categoryId = Number(req.params.id);
@@ -333,35 +338,31 @@ router.delete("/api/categories/:id", authMiddleware, async (req, res, next) => {
   }
 });
 
-router.put(
-  "/api/gifs/:slug/categories",
-  authMiddleware,
-  express.json(),
-  async (req, res, next) => {
-    const { slug } = req.params;
-    const { categoryIds } = req.body || {};
-    try {
-      const categories = await setGifCategories(slug, categoryIds);
-      if (categories === null) {
-        return res.status(404).json({ error: "GIF not found." });
-      }
-      return res.json({ categories });
-    } catch (error) {
-      if (error?.code === "CATEGORY_NOT_FOUND") {
-        return res.status(400).json({ error: error.message });
-      }
-      return next(error);
+router.put("/api/gifs/:slug/categories", authMiddleware, express.json(), async (req, res, next) => {
+  const slug = routeParam(req.params.slug);
+  const { categoryIds } = req.body || {};
+  try {
+    const categories = await setGifCategories(slug, categoryIds);
+    if (categories === null) {
+      return res.status(404).json({ error: "GIF not found." });
     }
-  },
-);
+    return res.json({ categories });
+  } catch (error) {
+    const err = toError(error);
+    if (err.code === "CATEGORY_NOT_FOUND") {
+      return res.status(400).json({ error: err.message });
+    }
+    return next(err);
+  }
+});
 
 router.post("/api/upload", authMiddleware, (req, res, next) => {
-  upload.single("gif")(req, res, async (err) => {
+  upload.single("gif")(req, res, async (err: unknown) => {
     if (err instanceof multer.MulterError) {
       return res.status(400).json({ error: err.message });
     }
     if (err) {
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: toError(err).message });
     }
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded." });
@@ -376,13 +377,11 @@ router.post("/api/upload", authMiddleware, (req, res, next) => {
       if (animatedPath) {
         filePath = animatedPath;
         filename = path.basename(animatedPath);
-        mimeType =
-          EXTENSION_MIME_MAP[path.extname(animatedPath).toLowerCase()] ||
-          mimeType;
+        mimeType = EXTENSION_MIME_MAP[path.extname(animatedPath).toLowerCase()] || mimeType;
       }
       sizeBytes = (await fsPromises.stat(filePath)).size;
     } catch (e) {
-      console.warn(`ensureAnimated failed for ${filePath}: ${e.message}`);
+      console.warn(`ensureAnimated failed for ${filePath}: ${toError(e).message}`);
     }
     return addGif({
       slug,
@@ -397,20 +396,19 @@ router.post("/api/upload", authMiddleware, (req, res, next) => {
           shareUrl: buildShareUrl(req, slug, filename),
         });
       })
-      .catch((dbError) => {
+      .catch((dbError: unknown) => {
         fs.unlink(filePath, () => {});
         next(dbError);
       });
   });
 });
 
-async function serveSharedGif(req, res, next) {
-  const { slug, ext: requestedExtParam } = req.params;
-  const clientIp = req.ip || req.connection?.remoteAddress || "unknown-ip";
+async function serveSharedGif(req: Request, res: Response, next: (error?: unknown) => void) {
+  const slug = routeParam(req.params.slug);
+  const requestedExtParam = routeParam(req.params.ext);
+  const clientIp = req.ip || req.socket?.remoteAddress || "unknown-ip";
   const referer = req.get("referer") || req.get("referrer") || "no-referer";
-  console.log(
-    `[share-access] slug=${slug} from ${clientIp} referer=${referer}`,
-  );
+  console.log(`[share-access] slug=${slug} from ${clientIp} referer=${referer}`);
   try {
     const gif = await findGifBySlug(slug);
     if (!gif) {
@@ -421,18 +419,11 @@ async function serveSharedGif(req, res, next) {
       return res.status(404).json({ error: "GIF file missing." });
     }
     const storedExtension = path.extname(gif.filename).toLowerCase();
-    const requestedExtension = requestedExtParam
-      ? `.${requestedExtParam.toLowerCase()}`
-      : null;
-    if (
-      requestedExtension &&
-      storedExtension &&
-      requestedExtension !== storedExtension
-    ) {
+    const requestedExtension = requestedExtParam ? `.${requestedExtParam.toLowerCase()}` : null;
+    if (requestedExtension && storedExtension && requestedExtension !== storedExtension) {
       return res.redirect(301, buildShareUrl(req, gif.slug, gif.filename));
     }
-    const mimeType =
-      gif.mimeType || EXTENSION_MIME_MAP[storedExtension] || "image/gif";
+    const mimeType = gif.mimeType || EXTENSION_MIME_MAP[storedExtension] || "image/gif";
     res.type(mimeType);
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
@@ -460,7 +451,7 @@ router.get("/share/:slug", async (req, res, next) => {
 });
 
 router.delete("/api/gifs/:slug", authMiddleware, async (req, res, next) => {
-  const { slug } = req.params;
+  const slug = routeParam(req.params.slug);
   try {
     const gif = await findGifBySlug(slug);
     if (!gif) {
@@ -478,22 +469,29 @@ router.delete("/api/gifs/:slug", authMiddleware, async (req, res, next) => {
   }
 });
 
+interface ImportResult {
+  url: unknown;
+  success: boolean;
+  slug?: string;
+  error?: string;
+}
+
 router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
   const { urls } = req.body;
   if (!Array.isArray(urls)) {
     return res.status(400).json({ error: "urls must be an array" });
   }
 
-  const results = [];
+  const results: ImportResult[] = [];
   const MAX_DOWNLOAD_SIZE = 15 * 1024 * 1024;
 
   for (const urlStr of urls) {
-    const result = { url: urlStr, success: false };
+    const result: ImportResult = { url: urlStr, success: false };
     try {
-      let url;
+      let url: URL;
       try {
         url = new URL(urlStr);
-      } catch (e) {
+      } catch {
         throw new Error("Invalid URL");
       }
 
@@ -507,25 +505,20 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
       try {
         try {
           await execFilePromise("gallery-dl", ["--directory", tempDir, urlStr]);
-        } catch (dlError) {
-          console.warn(
-            `[Import] gallery-dl failed for ${urlStr}, attempting fallback.`,
-          );
+        } catch {
+          console.warn(`[Import] gallery-dl failed for ${urlStr}, attempting fallback.`);
 
           const pageResp = await safeFetch(urlStr, {
             headers: {
-              "User-Agent":
-                "Mozilla/5.0 (compatible; GifSelector/1.0; +http://localhost)",
+              "User-Agent": "Mozilla/5.0 (compatible; GifSelector/1.0; +http://localhost)",
             },
           });
           if (!pageResp.ok)
-            throw new Error(
-              `Fallback fetch failed: ${pageResp.status} ${pageResp.statusText}`,
-            );
+            throw new Error(`Fallback fetch failed: ${pageResp.status} ${pageResp.statusText}`);
 
           const html = await pageResp.text();
 
-          const extractMeta = (prop) => {
+          const extractMeta = (prop: string): string | null => {
             const regex = new RegExp(
               `<meta\\s+(?:property|name)=["']${prop}["']\\s+content=["']([^"']+)["']`,
               "i",
@@ -546,10 +539,10 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
 
           mediaUrl = mediaUrl.replace(/&amp;/g, "&");
 
-          let parsedMediaUrl;
+          let parsedMediaUrl: URL;
           try {
             parsedMediaUrl = new URL(mediaUrl, urlStr);
-          } catch (e) {
+          } catch {
             throw new Error("Invalid media URL in metadata");
           }
           if (!isWhitelistedUrl(parsedMediaUrl)) {
@@ -588,8 +581,8 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           await fsPromises.writeFile(savePath, Buffer.from(buffer));
         }
 
-        const findFiles = async (dir) => {
-          const files = [];
+        const findFiles = async (dir: string): Promise<string[]> => {
+          const files: string[] = [];
           const entries = await fsPromises.readdir(dir, {
             withFileTypes: true,
           });
@@ -611,24 +604,21 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
         }
 
         let foundValid = false;
-        for (const filePath of downloadedFiles) {
+        for (const downloadedPath of downloadedFiles) {
           if (foundValid) break;
 
-          const ext = path.extname(filePath).toLowerCase();
+          const ext = path.extname(downloadedPath).toLowerCase();
           const isMp4 = ext === ".mp4";
           if (!ALLOWED_EXTENSIONS.has(ext) && !isMp4) {
             continue;
           }
 
-          let finalFilePath = filePath;
+          let finalFilePath = downloadedPath;
           let finalExt = ext;
           let finalMimeType = isMp4 ? "video/mp4" : EXTENSION_MIME_MAP[ext];
 
           if (finalExt === ".gif" || isMp4) {
-            const webpPath = filePath.replace(
-              new RegExp(`${ext}$`, "i"),
-              ".webp",
-            );
+            const webpPath = downloadedPath.replace(new RegExp(`${ext}$`, "i"), ".webp");
             let conversionSuccess = false;
 
             if (isMp4) {
@@ -636,7 +626,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                 await execFilePromise("ffmpeg", [
                   "-y",
                   "-i",
-                  filePath,
+                  downloadedPath,
                   "-vcodec",
                   "libwebp",
                   "-loop",
@@ -652,7 +642,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                 conversionSuccess = true;
               } catch (e) {
                 console.warn(
-                  `ffmpeg conversion failed for ${filePath}: ${e.message}`,
+                  `ffmpeg conversion failed for ${downloadedPath}: ${toError(e).message}`,
                 );
               }
             }
@@ -660,7 +650,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
             if (!conversionSuccess) {
               try {
                 await execFilePromise("magick", [
-                  filePath,
+                  downloadedPath,
                   "-coalesce",
                   "-quality",
                   "80",
@@ -668,10 +658,10 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                 ]);
                 await fsPromises.access(webpPath);
                 conversionSuccess = true;
-              } catch (errMagick) {
+              } catch {
                 try {
                   await execFilePromise("convert", [
-                    filePath,
+                    downloadedPath,
                     "-coalesce",
                     "-quality",
                     "80",
@@ -681,7 +671,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
                   conversionSuccess = true;
                 } catch (errConvert) {
                   console.warn(
-                    `ImageMagick conversion failed for ${filePath}: ${errConvert.message}`,
+                    `ImageMagick conversion failed for ${downloadedPath}: ${toError(errConvert).message}`,
                   );
                 }
               }
@@ -692,26 +682,16 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
               finalExt = ".webp";
               finalMimeType = "image/webp";
             } else if (isMp4) {
-              const gifPath = filePath.replace(
-                new RegExp(`${ext}$`, "i"),
-                ".gif",
-              );
+              const gifPath = downloadedPath.replace(new RegExp(`${ext}$`, "i"), ".gif");
               try {
-                await execFilePromise("ffmpeg", [
-                  "-y",
-                  "-i",
-                  filePath,
-                  gifPath,
-                ]);
+                await execFilePromise("ffmpeg", ["-y", "-i", downloadedPath, gifPath]);
                 await fsPromises.access(gifPath);
 
                 finalFilePath = gifPath;
                 finalExt = ".gif";
                 finalMimeType = "image/gif";
               } catch (e) {
-                console.warn(
-                  `Fallback MP4->GIF conversion failed: ${e.message}`,
-                );
+                console.warn(`Fallback MP4->GIF conversion failed: ${toError(e).message}`);
               }
             }
           }
@@ -728,9 +708,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
               finalMimeType = EXTENSION_MIME_MAP[finalExt] || finalMimeType;
             }
           } catch (e) {
-            console.warn(
-              `ensureAnimated failed for ${finalFilePath}: ${e.message}`,
-            );
+            console.warn(`ensureAnimated failed for ${finalFilePath}: ${toError(e).message}`);
           }
 
           const stats = await fsPromises.stat(finalFilePath);
@@ -744,7 +722,7 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
           await fsPromises.copyFile(finalFilePath, savePath);
 
           const slug = nanoid(10);
-          const originalName = path.basename(filePath);
+          const originalName = path.basename(downloadedPath);
 
           await addGif({
             slug,
@@ -760,17 +738,13 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
         }
 
         if (!foundValid && downloadedFiles.length > 0) {
-          throw new Error(
-            "Downloaded files were not valid GIFs/WebPs or were too large.",
-          );
+          throw new Error("Downloaded files were not valid GIFs/WebPs or were too large.");
         }
       } finally {
-        await fsPromises
-          .rm(tempDir, { recursive: true, force: true })
-          .catch(() => {});
+        await fsPromises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
       }
     } catch (err) {
-      result.error = err.message;
+      result.error = toError(err).message;
     }
     results.push(result);
   }
@@ -778,4 +752,4 @@ router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
   res.json({ results });
 });
 
-module.exports = router;
+export default router;

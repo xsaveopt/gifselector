@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useState } from "react";
 
 type Category = {
   id: number;
@@ -20,22 +20,22 @@ export default function CategoryManager({
   onCreateCategory,
   onDeleteCategory,
   isCreating,
-  deletingCategoryId
+  deletingCategoryId,
 }: CategoryManagerProps) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) {
-      setLocalError('Enter a category name.');
+      setLocalError("Enter a category name.");
       return;
     }
     setLocalError(null);
     const created = await onCreateCategory(trimmed);
     if (created) {
-      setName('');
+      setName("");
     }
   };
 
@@ -63,7 +63,7 @@ export default function CategoryManager({
             disabled={isCreating}
           />
           <button type="submit" disabled={isCreating}>
-            {isCreating ? 'Creating…' : 'Add category'}
+            {isCreating ? "Creating…" : "Add category"}
           </button>
         </div>
         {localError ? <p className="error category-form__error">{localError}</p> : null}
@@ -84,7 +84,7 @@ export default function CategoryManager({
                 onClick={() => onDeleteCategory(category.id, category.name)}
                 disabled={deletingCategoryId === category.id}
               >
-                {deletingCategoryId === category.id ? 'Deleting…' : 'Delete'}
+                {deletingCategoryId === category.id ? "Deleting…" : "Delete"}
               </button>
             </div>
           ))

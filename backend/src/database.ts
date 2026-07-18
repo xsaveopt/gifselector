@@ -1,16 +1,55 @@
-const fs = require("fs");
-const path = require("path");
-const initSqlJs = require("sql.js");
+import fs from "node:fs";
+import path from "node:path";
+import { createRequire } from "node:module";
+import initSqlJs from "sql.js";
+import type { Database, SqlJsStatic } from "sql.js";
+import { type CodedError, toError } from "./errors.ts";
 
-const dbPath = path.resolve(__dirname, "../data/gifselector.db");
+const require = createRequire(import.meta.url);
+
+const dbPath = path.resolve(import.meta.dirname, "../data/gifselector.db");
 const sqlJsDistDir = path.dirname(require.resolve("sql.js/dist/sql-wasm.wasm"));
-let dbInstancePromise;
+let dbInstancePromise: Promise<{ SQL: SqlJsStatic; db: Database }> | undefined;
 
-function locateSqlJsFile(file) {
+export interface GifCategory {
+  id: number;
+  name: string;
+}
+
+export interface GifRow {
+  id: number;
+  slug: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface GifWithCategories extends GifRow {
+  categories: GifCategory[];
+}
+
+export interface CategoryRow {
+  id: number;
+  name: string;
+  createdAt: string;
+  gifCount: number;
+}
+
+interface AddGifInput {
+  slug: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+function locateSqlJsFile(file: string): string {
   return path.join(sqlJsDistDir, file);
 }
 
-async function initialiseDatabase() {
+async function initialiseDatabase(): Promise<{ SQL: SqlJsStatic; db: Database }> {
   const SQL = await initSqlJs({ locateFile: locateSqlJsFile });
   const existingFile = fs.existsSync(dbPath) ? fs.readFileSync(dbPath) : null;
   const db = existingFile ? new SQL.Database(existingFile) : new SQL.Database();
@@ -54,20 +93,26 @@ async function initialiseDatabase() {
   return { SQL, db };
 }
 
-function getDatabase() {
+function getDatabase(): Promise<{ SQL: SqlJsStatic; db: Database }> {
   if (!dbInstancePromise) {
     dbInstancePromise = initialiseDatabase();
   }
   return dbInstancePromise;
 }
 
-function persistDatabase(db) {
+function persistDatabase(db: Database): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const data = db.export();
   fs.writeFileSync(dbPath, Buffer.from(data));
 }
 
-async function addGif({ slug, filename, originalName, mimeType, sizeBytes }) {
+export async function addGif({
+  slug,
+  filename,
+  originalName,
+  mimeType,
+  sizeBytes,
+}: AddGifInput): Promise<void> {
   const { db } = await getDatabase();
   const stmt = db.prepare(`
     INSERT INTO gifs (slug, filename, original_name, mime_type, size_bytes)
@@ -84,59 +129,66 @@ async function addGif({ slug, filename, originalName, mimeType, sizeBytes }) {
   persistDatabase(db);
 }
 
-async function listGifs() {
+function attachCategories(db: Database, results: GifWithCategories[]): void {
+  if (results.length === 0) {
+    return;
+  }
+  const placeholders = results.map((_, index) => `:gifId${index}`);
+  const relationQuery = `
+    SELECT
+      gc.gif_id AS gifId,
+      c.id AS categoryId,
+      c.name AS categoryName
+    FROM gif_categories gc
+    INNER JOIN categories c ON c.id = gc.category_id
+    WHERE gc.gif_id IN (${placeholders.join(", ")})
+    ORDER BY c.name COLLATE NOCASE
+  `;
+  const relationStmt = db.prepare(relationQuery);
+  const params: Record<string, number> = {};
+  results.forEach((gif, index) => {
+    params[`:gifId${index}`] = gif.id;
+  });
+  relationStmt.bind(params);
+  const assignments = new Map<number, GifCategory[]>();
+  while (relationStmt.step()) {
+    const row = relationStmt.getAsObject() as unknown as {
+      gifId: number;
+      categoryId: number;
+      categoryName: string;
+    };
+    if (!assignments.has(row.gifId)) {
+      assignments.set(row.gifId, []);
+    }
+    assignments.get(row.gifId)?.push({ id: row.categoryId, name: row.categoryName });
+  }
+  relationStmt.free();
+  results.forEach((gif) => {
+    gif.categories = assignments.get(gif.id) || [];
+  });
+}
+
+export async function listGifs(): Promise<GifWithCategories[]> {
   const { db } = await getDatabase();
   const stmt = db.prepare(`
     SELECT id, slug, filename, original_name AS originalName, mime_type AS mimeType, size_bytes AS sizeBytes, created_at AS createdAt
     FROM gifs
     ORDER BY datetime(created_at) DESC
   `);
-  const results = [];
+  const results: GifWithCategories[] = [];
   while (stmt.step()) {
-    const record = stmt.getAsObject();
+    const record = stmt.getAsObject() as unknown as GifWithCategories;
     record.categories = [];
     results.push(record);
   }
   stmt.free();
 
-  if (results.length > 0) {
-    const placeholders = results.map((_, index) => `:gifId${index}`);
-    const relationQuery = `
-      SELECT
-        gc.gif_id AS gifId,
-        c.id AS categoryId,
-        c.name AS categoryName
-      FROM gif_categories gc
-      INNER JOIN categories c ON c.id = gc.category_id
-      WHERE gc.gif_id IN (${placeholders.join(", ")})
-      ORDER BY c.name COLLATE NOCASE
-    `;
-    const relationStmt = db.prepare(relationQuery);
-    const params = {};
-    results.forEach((gif, index) => {
-      params[`:gifId${index}`] = gif.id;
-    });
-    relationStmt.bind(params);
-    const assignments = new Map();
-    while (relationStmt.step()) {
-      const row = relationStmt.getAsObject();
-      if (!assignments.has(row.gifId)) {
-        assignments.set(row.gifId, []);
-      }
-      assignments
-        .get(row.gifId)
-        .push({ id: row.categoryId, name: row.categoryName });
-    }
-    relationStmt.free();
-    results.forEach((gif) => {
-      gif.categories = assignments.get(gif.id) || [];
-    });
-  }
+  attachCategories(db, results);
 
   return results;
 }
 
-async function findGifBySlug(slug) {
+export async function findGifBySlug(slug: string): Promise<GifRow | null> {
   const { db } = await getDatabase();
   const stmt = db.prepare(`
     SELECT id, slug, filename, original_name AS originalName, mime_type AS mimeType, size_bytes AS sizeBytes, created_at AS createdAt
@@ -145,12 +197,12 @@ async function findGifBySlug(slug) {
     LIMIT 1
   `);
   stmt.bind({ ":slug": slug });
-  const gif = stmt.step() ? stmt.getAsObject() : null;
+  const gif = stmt.step() ? (stmt.getAsObject() as unknown as GifRow) : null;
   stmt.free();
   return gif;
 }
 
-async function deleteGifBySlug(slug) {
+export async function deleteGifBySlug(slug: string): Promise<boolean> {
   const { db } = await getDatabase();
   const stmt = db.prepare(`
     DELETE FROM gifs
@@ -158,7 +210,7 @@ async function deleteGifBySlug(slug) {
   `);
   stmt.run({ ":slug": slug });
   stmt.free();
-  const modified = db.getRowsModified ? db.getRowsModified() : 0;
+  const modified = db.getRowsModified();
   if (modified > 0) {
     persistDatabase(db);
     return true;
@@ -166,7 +218,7 @@ async function deleteGifBySlug(slug) {
   return false;
 }
 
-async function listCategories() {
+export async function listCategories(): Promise<CategoryRow[]> {
   const { db } = await getDatabase();
   const stmt = db.prepare(`
     SELECT
@@ -182,18 +234,18 @@ async function listCategories() {
     ) g ON g.category_id = c.id
     ORDER BY c.name COLLATE NOCASE
   `);
-  const categories = [];
+  const categories: CategoryRow[] = [];
   while (stmt.step()) {
-    categories.push(stmt.getAsObject());
+    categories.push(stmt.getAsObject() as unknown as CategoryRow);
   }
   stmt.free();
   return categories;
 }
 
-async function addCategory(name) {
+export async function addCategory(name: string | undefined): Promise<CategoryRow | null> {
   const trimmedName = (name || "").trim();
   if (!trimmedName) {
-    const error = new Error("Category name is required.");
+    const error: CodedError = new Error("Category name is required.");
     error.code = "CATEGORY_NAME_REQUIRED";
     throw error;
   }
@@ -211,7 +263,7 @@ async function addCategory(name) {
       WHERE id = last_insert_rowid()
       LIMIT 1
     `);
-    const category = fetchStmt.step() ? fetchStmt.getAsObject() : null;
+    const category = fetchStmt.step() ? (fetchStmt.getAsObject() as unknown as CategoryRow) : null;
     fetchStmt.free();
     persistDatabase(db);
     if (category) {
@@ -219,16 +271,17 @@ async function addCategory(name) {
     }
     return null;
   } catch (error) {
-    if (error?.message?.includes("UNIQUE")) {
-      const duplicateError = new Error("Category name already exists.");
+    const err = toError(error);
+    if (err.message.includes("UNIQUE")) {
+      const duplicateError: CodedError = new Error("Category name already exists.");
       duplicateError.code = "CATEGORY_NAME_DUPLICATE";
       throw duplicateError;
     }
-    throw error;
+    throw err;
   }
 }
 
-async function deleteCategoryById(categoryId) {
+export async function deleteCategoryById(categoryId: number): Promise<boolean> {
   const { db } = await getDatabase();
   const cleanupStmt = db.prepare(`
     DELETE FROM gif_categories
@@ -236,14 +289,14 @@ async function deleteCategoryById(categoryId) {
   `);
   cleanupStmt.run({ ":id": categoryId });
   cleanupStmt.free();
-  const relationsModified = db.getRowsModified ? db.getRowsModified() : 0;
+  const relationsModified = db.getRowsModified();
   const stmt = db.prepare(`
     DELETE FROM categories
     WHERE id = :id
   `);
   stmt.run({ ":id": categoryId });
   stmt.free();
-  const modified = db.getRowsModified ? db.getRowsModified() : 0;
+  const modified = db.getRowsModified();
   if (modified > 0 || relationsModified > 0) {
     persistDatabase(db);
     return true;
@@ -251,7 +304,10 @@ async function deleteCategoryById(categoryId) {
   return false;
 }
 
-async function setGifCategories(slug, categoryIds) {
+export async function setGifCategories(
+  slug: string,
+  categoryIds: unknown,
+): Promise<GifCategory[] | null> {
   const { db } = await getDatabase();
   const lookupStmt = db.prepare(`
     SELECT id
@@ -260,7 +316,7 @@ async function setGifCategories(slug, categoryIds) {
     LIMIT 1
   `);
   lookupStmt.bind({ ":slug": slug });
-  const gifRow = lookupStmt.step() ? lookupStmt.getAsObject() : null;
+  const gifRow = lookupStmt.step() ? (lookupStmt.getAsObject() as unknown as { id: number }) : null;
   lookupStmt.free();
   if (!gifRow) {
     return null;
@@ -274,7 +330,7 @@ async function setGifCategories(slug, categoryIds) {
     ),
   );
 
-  let validatedCategories = [];
+  let validatedCategories: GifCategory[] = [];
 
   if (uniqueIds.length > 0) {
     const placeholders = uniqueIds.map((_, index) => `:category${index}`);
@@ -283,19 +339,19 @@ async function setGifCategories(slug, categoryIds) {
       FROM categories
       WHERE id IN (${placeholders.join(", ")})
     `);
-    const params = {};
+    const params: Record<string, number> = {};
     uniqueIds.forEach((value, index) => {
       params[`:category${index}`] = value;
     });
     validateStmt.bind(params);
-    const found = new Map();
+    const found = new Map<number, string>();
     while (validateStmt.step()) {
-      const row = validateStmt.getAsObject();
+      const row = validateStmt.getAsObject() as unknown as { id: number; name: string };
       found.set(row.id, row.name);
     }
     validateStmt.free();
     if (found.size !== uniqueIds.length) {
-      const error = new Error("One or more categories do not exist.");
+      const error: CodedError = new Error("One or more categories do not exist.");
       error.code = "CATEGORY_NOT_FOUND";
       throw error;
     }
@@ -335,13 +391,11 @@ async function setGifCategories(slug, categoryIds) {
   return validatedCategories;
 }
 
-async function getGifsByCategory(categoryIdentifier) {
+export async function getGifsByCategory(categoryIdentifier: string): Promise<GifWithCategories[]> {
   const { db } = await getDatabase();
 
   const isNumeric = /^\d+$/.test(String(categoryIdentifier));
-  const whereClause = isNumeric
-    ? "(c.id = :val OR c.name = :val)"
-    : "c.name = :val";
+  const whereClause = isNumeric ? "(c.id = :val OR c.name = :val)" : "c.name = :val";
 
   const stmt = db.prepare(`
     SELECT g.id, g.slug, g.filename, g.original_name AS originalName, g.mime_type AS mimeType, g.size_bytes AS sizeBytes, g.created_at AS createdAt
@@ -352,59 +406,15 @@ async function getGifsByCategory(categoryIdentifier) {
     ORDER BY datetime(g.created_at) DESC
   `);
   stmt.bind({ ":val": categoryIdentifier });
-  const results = [];
+  const results: GifWithCategories[] = [];
   while (stmt.step()) {
-    const row = stmt.getAsObject();
+    const row = stmt.getAsObject() as unknown as GifWithCategories;
     row.categories = [];
     results.push(row);
   }
   stmt.free();
 
-  if (results.length > 0) {
-    const placeholders = results.map((_, index) => `:gifId${index}`);
-    const relationQuery = `
-      SELECT
-        gc.gif_id AS gifId,
-        c.id AS categoryId,
-        c.name AS categoryName
-      FROM gif_categories gc
-      INNER JOIN categories c ON c.id = gc.category_id
-      WHERE gc.gif_id IN (${placeholders.join(", ")})
-      ORDER BY c.name COLLATE NOCASE
-    `;
-    const relationStmt = db.prepare(relationQuery);
-    const params = {};
-    results.forEach((gif, index) => {
-      params[`:gifId${index}`] = gif.id;
-    });
-    relationStmt.bind(params);
-    const assignments = new Map();
-    while (relationStmt.step()) {
-      const row = relationStmt.getAsObject();
-      if (!assignments.has(row.gifId)) {
-        assignments.set(row.gifId, []);
-      }
-      assignments
-        .get(row.gifId)
-        .push({ id: row.categoryId, name: row.categoryName });
-    }
-    relationStmt.free();
-    results.forEach((gif) => {
-      gif.categories = assignments.get(gif.id) || [];
-    });
-  }
+  attachCategories(db, results);
 
   return results;
 }
-
-module.exports = {
-  addGif,
-  listGifs,
-  findGifBySlug,
-  deleteGifBySlug,
-  listCategories,
-  addCategory,
-  deleteCategoryById,
-  setGifCategories,
-  getGifsByCategory,
-};
