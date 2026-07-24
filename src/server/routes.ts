@@ -168,7 +168,11 @@ router.get("/api/public/gifs", publicApiLimiter, async (req, res, next) => {
     const gifs = await getGifsByCategory(categoryName);
 
     const gifsWithUrls = gifs.map((g) => ({
-      ...g,
+      slug: g.slug,
+      originalName: g.originalName,
+      sizeBytes: g.sizeBytes,
+      createdAt: g.createdAt,
+      mimeType: g.mimeType,
       shareUrl: buildShareUrl(req, g.slug, g.filename),
     }));
 

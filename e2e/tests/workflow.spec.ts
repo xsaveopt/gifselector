@@ -12,9 +12,10 @@ test.beforeEach(async ({ page }) => {
 
 test("creates a category", async ({ page }) => {
   const name = `E2E-${Date.now()}`;
+  await page.getByRole("button", { name: "Categories" }).click();
   await page.getByLabel("Category name").fill(name);
-  await page.getByRole("button", { name: "Add category" }).click();
-  await expect(page.locator(".category-list__name", { hasText: name })).toBeVisible();
+  await page.getByRole("button", { name: "Add" }).click();
+  await expect(page.locator(".category-row-name", { hasText: name })).toBeVisible();
 });
 
 test("uploads a gif via drag-and-drop and shows it in the gallery", async ({ page }) => {
@@ -29,7 +30,7 @@ test("uploads a gif via drag-and-drop and shows it in the gallery", async ({ pag
     return dt;
   }, ONE_PIXEL_GIF);
 
-  await page.locator(".dashboard").dispatchEvent("drop", { dataTransfer });
+  await page.locator(".app").dispatchEvent("drop", { dataTransfer });
 
   await expect(page.getByAltText("e2e.gif")).toBeVisible();
 });

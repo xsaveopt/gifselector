@@ -1,5 +1,5 @@
-import type { DragEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ChangeEvent, DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createCategory,
   deleteCategory,
@@ -14,70 +14,33 @@ import {
   updateGifCategories,
   uploadGif,
 } from "./api";
-import CategoryManager from "./components/CategoryManager";
+import CategoryDialog from "./components/CategoryDialog";
+import FilterBar, { UNCATEGORIZED_ID } from "./components/FilterBar";
 import Gallery from "./components/Gallery";
+import GifModal from "./components/GifModal";
+import ImportDialog from "./components/ImportDialog";
 import LoginForm from "./components/LoginForm";
+import Toaster from "./components/Toaster";
+import TopBar from "./components/TopBar";
+import type { Category, GifItem, SessionState, Toast, ViewMode } from "./types";
 
-type GifCategory = {
-  id: number;
-  name: string;
-};
-
-type Category = GifCategory & {
-  createdAt: string;
-  gifCount: number;
-};
-
-type GifItem = {
-  id: number;
-  slug: string;
-  originalName: string;
-  shareUrl: string;
-  createdAt: string;
-  sizeBytes: number;
-  mimeType?: string;
-  categories: GifCategory[];
-};
-
-type SessionState = {
-  authenticated: boolean;
-  username?: string;
-};
-
-const UNCATEGORIZED_ID = -1;
-
-function formatBytes(bytes: number) {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
+const ACCEPTED_TYPES = ["image/gif", "image/webp"];
 
 export default function App() {
   const base = (window.__BASE__ ?? "").replace(/\/$/, "");
-  const publicPath = `${base}/public`;
-  const isPublicView = window.location.pathname.startsWith(publicPath);
+  const isPublicView = window.location.pathname.startsWith(`${base}/public`);
 
-  const [session, setSession] = useState<SessionState>({
-    authenticated: false,
-  });
+  const [session, setSession] = useState<SessionState>({ authenticated: false });
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+
   const [gifs, setGifs] = useState<GifItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [categoryError, setCategoryError] = useState<string | null>(null);
-  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
-  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
-  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [_dragDepth, setDragDepth] = useState(0);
-  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [totalCount, setTotalCount] = useState(0);
+
+  const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [selectedCategory, setSelectedCategory] = useState<number | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const categoryId = params.get("category");
@@ -87,11 +50,35 @@ export default function App() {
     const defaultId = window.__DEFAULT_CATEGORY__;
     return defaultId ? Number(defaultId) : null;
   });
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const [isImportOpen, setIsImportOpen] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importStatus, setImportStatus] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
+
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragDepth = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
+  const [updatingCategorySlug, setUpdatingCategorySlug] = useState<string | null>(null);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+
+  const [openGifSlug, setOpenGifSlug] = useState<string | null>(null);
+  const [showImport, setShowImport] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
+
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const notify = useCallback((kind: Toast["kind"], message: string) => {
+    const id = Date.now() + Math.random();
+    setToasts((current) => [...current, { id, kind, message }]);
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3500);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -100,45 +87,18 @@ export default function App() {
     } else {
       params.delete("category");
     }
-    const newRelativePathQuery = window.location.pathname + "?" + params.toString();
-    window.history.replaceState(null, "", newRelativePathQuery);
+    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
   }, [selectedCategory]);
 
-  const filteredGifs = useMemo(() => {
-    if (selectedCategory === null) {
-      return gifs;
-    }
-    if (selectedCategory === UNCATEGORIZED_ID) {
-      return gifs.filter((gif) => gif.categories.length === 0);
-    }
-    return gifs.filter((gif) => gif.categories.some((c) => c.id === selectedCategory));
-  }, [gifs, selectedCategory]);
-
-  const stats = useMemo(() => {
-    const totalSize = gifs.reduce((acc, gif) => acc + gif.sizeBytes, 0);
-    const gifCount = gifs.filter((g) => g.mimeType === "image/gif").length;
-    const webpCount = gifs.filter((g) => g.mimeType === "image/webp").length;
-    const uncategorizedCount = gifs.filter((g) => g.categories.length === 0).length;
-    return { totalSize, gifCount, webpCount, uncategorizedCount };
-  }, [gifs]);
-
   const loadGifs = useCallback(async () => {
-    try {
-      const data = await fetchGifs();
-      setGifs(data.gifs ?? []);
-      setTotalCount(typeof data.total === "number" ? data.total : (data.gifs?.length ?? 0));
-    } catch (error) {
-      console.error(error);
-    }
+    const data = await fetchGifs();
+    setGifs(data.gifs ?? []);
+    setTotalCount(typeof data.total === "number" ? data.total : (data.gifs?.length ?? 0));
   }, []);
 
   const loadCategories = useCallback(async () => {
-    try {
-      const data = await fetchCategories();
-      setCategories(data.categories ?? []);
-    } catch (error) {
-      console.error(error);
-    }
+    const data = await fetchCategories();
+    setCategories(data.categories ?? []);
   }, []);
 
   const loadAdminData = useCallback(async () => {
@@ -149,16 +109,19 @@ export default function App() {
     if (isPublicView) {
       try {
         const data = await fetchPublicGifs();
-        setGifs(data.gifs ?? []);
-        setTotalCount(data.gifs?.length ?? 0);
-      } catch (err) {
-        console.error("Failed to load public gifs", err);
+        const items = (data.gifs ?? []).map((gif: GifItem) => ({
+          ...gif,
+          categories: gif.categories ?? [],
+        }));
+        setGifs(items);
+        setTotalCount(items.length);
+      } catch (error) {
+        console.error("Failed to load public gifs", error);
       } finally {
         setIsSessionLoading(false);
       }
       return;
     }
-
     try {
       const result = await getSession();
       setSession(result);
@@ -168,61 +131,54 @@ export default function App() {
         setGifs([]);
         setCategories([]);
         setTotalCount(0);
-        setCategoryError(null);
-        setDeletingCategoryId(null);
-        setUpdatingCategorySlug(null);
-        setIsCreatingCategory(false);
       }
     } catch (error) {
       console.error(error);
     } finally {
       setIsSessionLoading(false);
     }
-  }, [loadAdminData]);
+  }, [isPublicView, loadAdminData]);
 
   useEffect(() => {
     loadSession();
   }, [loadSession]);
 
-  const handleImport = async () => {
-    if (!importText.trim()) return;
-    setIsImporting(true);
-    setImportStatus("Importing...");
-
-    const urls = importText
-      .split(/[\n\r]+/)
-      .map((u) => u.trim())
-      .filter((u) => u.length > 0);
-
-    if (urls.length === 0) {
-      setIsImporting(false);
-      setImportStatus(null);
-      return;
+  const filteredGifs = useMemo(() => {
+    let result = gifs;
+    if (selectedCategory === UNCATEGORIZED_ID) {
+      result = result.filter((gif) => gif.categories.length === 0);
+    } else if (selectedCategory !== null) {
+      result = result.filter((gif) => gif.categories.some((c) => c.id === selectedCategory));
     }
-
-    try {
-      const result = await importGifs(urls);
-      const successes = result.results.filter((r: any) => r.success).length;
-      const failures = result.results.length - successes;
-
-      if (failures > 0) {
-        setImportStatus(`Imported ${successes}, Passed ${failures}. Check console.`);
-        console.log("Import results:", result.results);
-      } else {
-        setImportStatus(`Successfully imported ${successes} item(s).`);
-      }
-
-      if (successes > 0) {
-        await loadAdminData();
-        setImportText("");
-      }
-    } catch (err) {
-      console.error(err);
-      setImportStatus("Import failed.");
-    } finally {
-      setIsImporting(false);
+    const term = search.trim().toLowerCase();
+    if (term) {
+      result = result.filter((gif) => gif.originalName.toLowerCase().includes(term));
     }
-  };
+    return result;
+  }, [gifs, selectedCategory, search]);
+
+  const uncategorizedCount = useMemo(
+    () => gifs.filter((gif) => gif.categories.length === 0).length,
+    [gifs],
+  );
+
+  const openGif = useMemo(
+    () => filteredGifs.find((gif) => gif.slug === openGifSlug) ?? null,
+    [filteredGifs, openGifSlug],
+  );
+
+  const handleCopy = useCallback(
+    async (gif: GifItem) => {
+      try {
+        await navigator.clipboard.writeText(gif.shareUrl);
+        notify("success", "Share link copied.");
+      } catch (error) {
+        console.error("Failed to copy share link", error);
+        notify("error", "Could not copy the link.");
+      }
+    },
+    [notify],
+  );
 
   const handleLogin = async (username: string, password: string) => {
     setIsAuthenticating(true);
@@ -247,10 +203,6 @@ export default function App() {
       setGifs([]);
       setCategories([]);
       setTotalCount(0);
-      setCategoryError(null);
-      setDeletingCategoryId(null);
-      setUpdatingCategorySlug(null);
-      setIsCreatingCategory(false);
     }
   };
 
@@ -259,33 +211,49 @@ export default function App() {
       if (!files || files.length === 0) {
         return;
       }
-      setUploadError(null);
       setIsUploading(true);
+      let uploaded = 0;
+      let rejected = 0;
       try {
         for (const file of Array.from(files)) {
-          if (!["image/gif", "image/webp"].includes(file.type)) {
-            setUploadError("Only GIF or WebP files are supported.");
+          if (!ACCEPTED_TYPES.includes(file.type)) {
+            rejected += 1;
             continue;
           }
           await uploadGif(file);
+          uploaded += 1;
         }
-        await loadAdminData();
+        if (uploaded > 0) {
+          await loadAdminData();
+          notify("success", `Uploaded ${uploaded} file${uploaded === 1 ? "" : "s"}.`);
+        }
+        if (rejected > 0) {
+          notify("error", `Skipped ${rejected} unsupported file${rejected === 1 ? "" : "s"}.`);
+        }
       } catch (error) {
-        setUploadError(error instanceof Error ? error.message : "Upload failed.");
+        notify("error", error instanceof Error ? error.message : "Upload failed.");
       } finally {
         setIsUploading(false);
       }
     },
-    [loadAdminData],
+    [loadAdminData, notify],
   );
+
+  const onFileInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    await handleFiles(event.target.files);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const handleDrop = useCallback(
     async (event: DragEvent<HTMLDivElement>) => {
       event.preventDefault();
-      event.stopPropagation();
-      setDragDepth(0);
+      dragDepth.current = 0;
       setIsDragging(false);
-      if (isPublicView) return;
+      if (isPublicView) {
+        return;
+      }
       await handleFiles(event.dataTransfer.files);
     },
     [handleFiles, isPublicView],
@@ -293,13 +261,11 @@ export default function App() {
 
   const handleDragEnter = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
-      if (!event.dataTransfer.types.includes("Files")) {
+      if (isPublicView || !event.dataTransfer.types.includes("Files")) {
         return;
       }
       event.preventDefault();
-      event.stopPropagation();
-      if (isPublicView) return;
-      setDragDepth((value) => value + 1);
+      dragDepth.current += 1;
       setIsDragging(true);
     },
     [isPublicView],
@@ -310,14 +276,10 @@ export default function App() {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
-    setDragDepth((value) => {
-      const next = Math.max(0, value - 1);
-      if (next === 0) {
-        setIsDragging(false);
-      }
-      return next;
-    });
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) {
+      setIsDragging(false);
+    }
   }, []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -325,41 +287,35 @@ export default function App() {
       return;
     }
     event.preventDefault();
-    event.stopPropagation();
     event.dataTransfer.dropEffect = "copy";
   }, []);
 
   const handleDelete = useCallback(
     async (slug: string, name: string) => {
-      const confirmed = window.confirm(`Delete "${name}"? This cannot be undone.`);
-      if (!confirmed) {
+      if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) {
         return;
       }
-      setDeleteError(null);
       setDeletingSlug(slug);
       try {
         await deleteGif(slug);
+        setOpenGifSlug((current) => (current === slug ? null : current));
         await loadAdminData();
+        notify("success", "Deleted.");
       } catch (error) {
-        setDeleteError(error instanceof Error ? error.message : "Delete failed.");
+        notify("error", error instanceof Error ? error.message : "Delete failed.");
       } finally {
         setDeletingSlug(null);
       }
     },
-    [loadAdminData],
+    [loadAdminData, notify],
   );
 
   const handleCreateCategory = useCallback(
     async (name: string) => {
-      const trimmed = name.trim();
-      if (!trimmed) {
-        setCategoryError("Category name is required.");
-        return false;
-      }
       setCategoryError(null);
       setIsCreatingCategory(true);
       try {
-        await createCategory(trimmed);
+        await createCategory(name);
         await loadCategories();
         return true;
       } catch (error) {
@@ -374,16 +330,16 @@ export default function App() {
 
   const handleDeleteCategory = useCallback(
     async (categoryId: number, categoryName: string) => {
-      const confirmed = window.confirm(
-        `Delete category "${categoryName}"? Assignments will be removed.`,
-      );
-      if (!confirmed) {
+      if (!window.confirm(`Delete category "${categoryName}"? Assignments will be removed.`)) {
         return false;
       }
       setCategoryError(null);
       setDeletingCategoryId(categoryId);
       try {
         await deleteCategory(categoryId);
+        if (selectedCategory === categoryId) {
+          setSelectedCategory(null);
+        }
         await loadAdminData();
         return true;
       } catch (error) {
@@ -393,277 +349,174 @@ export default function App() {
         setDeletingCategoryId(null);
       }
     },
-    [loadAdminData],
+    [loadAdminData, selectedCategory],
   );
 
-  const handleUpdateGifCategories = useCallback(
-    async (slug: string, categoryIds: number[]) => {
-      setCategoryError(null);
-      setUpdatingCategorySlug(slug);
+  const handleToggleCategory = useCallback(
+    async (gif: GifItem, categoryId: number, next: boolean) => {
+      const ids = new Set(gif.categories.map((c) => c.id));
+      if (next) {
+        ids.add(categoryId);
+      } else {
+        ids.delete(categoryId);
+      }
+      setUpdatingCategorySlug(gif.slug);
       try {
-        const result = await updateGifCategories(slug, categoryIds);
+        const result = await updateGifCategories(gif.slug, Array.from(ids));
         const nextCategories = Array.isArray(result.categories) ? result.categories : [];
         setGifs((current) =>
-          current.map((gif) => (gif.slug === slug ? { ...gif, categories: nextCategories } : gif)),
+          current.map((item) =>
+            item.slug === gif.slug ? { ...item, categories: nextCategories } : item,
+          ),
         );
         await loadCategories();
-        return true;
       } catch (error) {
-        setCategoryError(error instanceof Error ? error.message : "Failed to update categories.");
-        return false;
+        notify("error", error instanceof Error ? error.message : "Failed to update categories.");
       } finally {
         setUpdatingCategorySlug(null);
       }
     },
-    [loadCategories],
+    [loadCategories, notify],
+  );
+
+  const handleImport = useCallback(
+    async (urls: string[]) => {
+      const response = await importGifs(urls);
+      const results = Array.isArray(response.results) ? response.results : [];
+      const successes = results.filter((entry: { success?: boolean }) => entry.success).length;
+      const failures = results.length - successes;
+      if (successes > 0) {
+        await loadAdminData();
+        notify("success", `Imported ${successes} item${successes === 1 ? "" : "s"}.`);
+      }
+      if (failures > 0) {
+        notify("error", `${failures} import${failures === 1 ? "" : "s"} failed.`);
+      }
+      return { successes, failures };
+    },
+    [loadAdminData, notify],
   );
 
   if (isSessionLoading) {
     return (
-      <div className="app-shell">
-        <p>Loading…</p>
+      <div className="boot">
+        <span className="spinner" />
       </div>
     );
   }
 
-  if (isPublicView) {
+  if (!isPublicView && !session.authenticated) {
     return (
-      <div className="dashboard">
-        <aside className="sidebar">
-          <div className="sidebar-header">
-            <h1>gifselector</h1>
-            <p style={{ fontSize: "0.8rem", color: "#888" }}>Public Gallery</p>
-          </div>
-          <div className="filter-section">
-            <label className="filter-label">View</label>
-            <div className="view-selector">
-              <button
-                type="button"
-                className={viewMode === "grid" ? "selected" : ""}
-                onClick={() => setViewMode("grid")}
-              >
-                Grid
-              </button>
-              <button
-                type="button"
-                className={viewMode === "list" ? "selected" : ""}
-                onClick={() => setViewMode("list")}
-              >
-                List
-              </button>
-            </div>
-          </div>
-          <div className="instructions-block">
-            <p className="muted instructions">Showing {gifs.length} entries</p>
-          </div>
-        </aside>
-        <main className="dashboard-main">
-          <div className="gallery-container">
-            <Gallery
-              gifs={gifs}
-              categories={[]}
-              onDelete={async () => {}}
-              deletingSlug={null}
-              onUpdateCategories={async () => false}
-              updatingCategoriesSlug={null}
-              viewMode={viewMode}
-              readOnly={true}
-            />
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  if (!session.authenticated) {
-    return (
-      <div className="app-shell">
+      <>
         <LoginForm
           onSubmit={handleLogin}
           isSubmitting={isAuthenticating}
           errorMessage={loginError}
         />
-      </div>
+        <Toaster toasts={toasts} onDismiss={dismissToast} />
+      </>
     );
   }
 
+  const readOnly = isPublicView;
+
   return (
     <div
-      className={`dashboard${isDragging ? " dashboard-dragging" : ""}`}
+      className={`app${isDragging ? " app--dragging" : ""}`}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
-      <aside className="sidebar">
-        <div className="sidebar-header">
-          <h1>gifselector</h1>
-        </div>
+      <TopBar
+        session={session}
+        readOnly={readOnly}
+        search={search}
+        onSearch={setSearch}
+        onUpload={() => fileInputRef.current?.click()}
+        onImport={() => setShowImport(true)}
+        onManageCategories={() => setShowCategories(true)}
+        onLogout={handleLogout}
+      />
 
-        <div className="filter-section">
-          <label htmlFor="category-filter" className="filter-label">
-            Filter
-          </label>
-          <div className="select-wrapper">
-            <select
-              id="category-filter"
-              value={selectedCategory ?? ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSelectedCategory(val ? Number(val) : null);
-              }}
-            >
-              <option value="">All Categories</option>
-              <option value={UNCATEGORIZED_ID}>Uncategorized</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="filter-section">
-          <label className="filter-label">View</label>
-          <div className="view-selector">
-            <button
-              type="button"
-              className={viewMode === "grid" ? "selected" : ""}
-              onClick={() => setViewMode("grid")}
-            >
-              Grid
-            </button>
-            <button
-              type="button"
-              className={viewMode === "list" ? "selected" : ""}
-              onClick={() => setViewMode("list")}
-            >
-              List
-            </button>
-          </div>
-        </div>
-
-        <div className="filter-section">
-          <label className="filter-label">Import</label>
-          {!isImportOpen ? (
-            <button type="button" className="import-trigger" onClick={() => setIsImportOpen(true)}>
-              Import from URLs
-            </button>
-          ) : (
-            <div className="import-box">
-              <textarea
-                className="import-textarea"
-                placeholder={`Paste URLS from:\n${[
-                  "tenor.com",
-                  "giphy.com",
-                  "klipy.com",
-                  "imgur.com",
-                  "discord.com",
-                ].join("\n")}`}
-                rows={4}
-                value={importText}
-                onChange={(e) => setImportText(e.target.value)}
-                disabled={isImporting}
-              />
-              <div className="import-actions">
-                <button
-                  type="button"
-                  onClick={handleImport}
-                  disabled={isImporting || !importText.trim()}
-                >
-                  {isImporting ? "Working..." : "Run"}
-                </button>
-                <button
-                  type="button"
-                  className="button-muted"
-                  disabled={isImporting}
-                  onClick={() => {
-                    setIsImportOpen(false);
-                    setImportStatus(null);
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-              {importStatus && <p className="import-status">{importStatus}</p>}
-            </div>
-          )}
-        </div>
-
-        <div className="instructions-block">
-          <p className="muted instructions">
-            {selectedCategory
-              ? `Showing ${filteredGifs.length} of ${totalCount} entries`
-              : `Total entries: ${totalCount}`}
-          </p>
-          <p className="muted instructions">
-            Drag GIF or WebP files anywhere on the screen to upload them.
-          </p>
-        </div>
-
-        <CategoryManager
+      <main className="workspace">
+        <FilterBar
           categories={categories}
-          onCreateCategory={handleCreateCategory}
-          onDeleteCategory={handleDeleteCategory}
-          isCreating={isCreatingCategory}
-          deletingCategoryId={deletingCategoryId}
+          selectedCategory={selectedCategory}
+          onSelectCategory={setSelectedCategory}
+          viewMode={viewMode}
+          onViewMode={setViewMode}
+          shownCount={filteredGifs.length}
+          totalCount={totalCount}
+          readOnly={readOnly}
+          uncategorizedCount={uncategorizedCount}
         />
 
-        <div className="stats-block">
-          <h2>Stats</h2>
-          <dl className="stats-list">
-            <div className="stats-item">
-              <dt>Total Size</dt>
-              <dd>{formatBytes(stats.totalSize)}</dd>
-            </div>
-            <div className="stats-item">
-              <dt>GIFs</dt>
-              <dd>{stats.gifCount}</dd>
-            </div>
-            <div className="stats-item">
-              <dt>WebPs</dt>
-              <dd>{stats.webpCount}</dd>
-            </div>
-            <div className="stats-item">
-              <dt>Uncategorized</dt>
-              <dd>{stats.uncategorizedCount}</dd>
-            </div>
-          </dl>
-        </div>
-      </aside>
-
-      <main className="dashboard-main">
-        <header className="top-bar">
-          <p className="muted">Welcome back{session.username ? `, ${session.username}` : ""}.</p>
-          <button type="button" onClick={handleLogout}>
-            Log out
-          </button>
-        </header>
-
-        <div className="gallery-container">
-          {uploadError ? <p className="error">{uploadError}</p> : null}
-          {deleteError ? <p className="error">{deleteError}</p> : null}
-          {categoryError ? <p className="error">{categoryError}</p> : null}
-          {isUploading ? <p className="muted">Uploading…</p> : null}
-
-          <Gallery
-            gifs={filteredGifs}
-            categories={categories}
-            onDelete={handleDelete}
-            deletingSlug={deletingSlug}
-            onUpdateCategories={handleUpdateGifCategories}
-            updatingCategoriesSlug={updatingCategorySlug}
-            viewMode={viewMode}
-          />
-        </div>
+        <Gallery
+          gifs={filteredGifs}
+          viewMode={viewMode}
+          readOnly={readOnly}
+          onOpen={(gif) => setOpenGifSlug(gif.slug)}
+          onCopy={handleCopy}
+          onDelete={handleDelete}
+          deletingSlug={deletingSlug}
+          emptyMessage={
+            search.trim() || selectedCategory !== null
+              ? "No matching items."
+              : readOnly
+                ? "This gallery is empty."
+                : "No GIFs yet."
+          }
+        />
       </main>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/gif,image/webp"
+        multiple
+        onChange={onFileInputChange}
+        hidden
+      />
+
       {isDragging ? (
-        <div className="drag-overlay">
-          <p>Drop to upload GIF/WebP files</p>
+        <div className="drop-overlay">
+          <div className="drop-card">Drop GIF or WebP files to upload</div>
         </div>
       ) : null}
+
+      {isUploading ? <div className="upload-strip">Uploading…</div> : null}
+
+      {openGif ? (
+        <GifModal
+          gif={openGif}
+          categories={categories}
+          readOnly={readOnly}
+          isUpdatingCategories={updatingCategorySlug === openGif.slug}
+          onClose={() => setOpenGifSlug(null)}
+          onCopy={handleCopy}
+          onDelete={handleDelete}
+          onToggleCategory={handleToggleCategory}
+        />
+      ) : null}
+
+      {showImport ? (
+        <ImportDialog onClose={() => setShowImport(false)} onImport={handleImport} />
+      ) : null}
+
+      {showCategories ? (
+        <CategoryDialog
+          categories={categories}
+          isCreating={isCreatingCategory}
+          deletingCategoryId={deletingCategoryId}
+          error={categoryError}
+          onClose={() => setShowCategories(false)}
+          onCreate={handleCreateCategory}
+          onDelete={handleDeleteCategory}
+        />
+      ) : null}
+
+      <Toaster toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

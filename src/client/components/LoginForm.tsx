@@ -1,4 +1,5 @@
-import { FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
+import { LogoIcon } from "./Icons";
 
 type LoginFormProps = {
   onSubmit: (username: string, password: string) => Promise<void>;
@@ -16,11 +17,18 @@ export default function LoginForm({ onSubmit, isSubmitting, errorMessage }: Logi
   };
 
   return (
-    <div className="card">
-      <h1>gifselector</h1>
-      <p className="muted">Sign in to manage your GIFs and WebPs.</p>
-      <form className="stack" onSubmit={handleSubmit}>
-        <label className="stack">
+    <div className="login-screen">
+      <form className="login-card" onSubmit={handleSubmit}>
+        <div className="login-brand">
+          <span className="brand-mark">
+            <LogoIcon width={22} height={22} />
+          </span>
+          <div>
+            <h1>gifselector</h1>
+            <p className="dim">Sign in to manage your collection.</p>
+          </div>
+        </div>
+        <label className="field">
           <span>Username</span>
           <input
             type="text"
@@ -30,7 +38,7 @@ export default function LoginForm({ onSubmit, isSubmitting, errorMessage }: Logi
             required
           />
         </label>
-        <label className="stack">
+        <label className="field">
           <span>Password</span>
           <input
             type="password"
@@ -40,8 +48,8 @@ export default function LoginForm({ onSubmit, isSubmitting, errorMessage }: Logi
             required
           />
         </label>
-        {errorMessage ? <p className="error">{errorMessage}</p> : null}
-        <button type="submit" disabled={isSubmitting}>
+        {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+        <button type="submit" className="btn btn-primary btn-block" disabled={isSubmitting}>
           {isSubmitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
