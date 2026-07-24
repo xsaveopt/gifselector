@@ -2,11 +2,10 @@
 .env
 .env.example
 .git
-backend/.env
-backend/data
-backend/node_modules
-backend/uploads
-Dockerfile
-frontend/.env
-frontend/node_modules
 node_modules
+dist
+data
+e2e/node_modules
+e2e/test-results
+e2e/playwright-report
+Dockerfile

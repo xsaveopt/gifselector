@@ -1,0 +1,16 @@
+services:
+  gifselector:
+    image: ghcr.io/xsaveopt/gifselector:latest
+    ports:
+      - "3000:3000"
+    environment:
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: change-me
+      JWT_SECRET: change-me-to-a-long-random-string
+      HOME: /tmp
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
