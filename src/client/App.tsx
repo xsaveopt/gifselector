@@ -42,6 +42,9 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [selectedCategory, setSelectedCategory] = useState<number | null>(() => {
+    if (isPublicView) {
+      return null;
+    }
     const params = new URLSearchParams(window.location.search);
     const categoryId = params.get("category");
     if (categoryId) {
@@ -82,13 +85,20 @@ export default function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (selectedCategory !== null) {
+    if (isPublicView) {
+      params.delete("category");
+    } else if (selectedCategory !== null) {
       params.set("category", String(selectedCategory));
     } else {
       params.delete("category");
     }
-    window.history.replaceState(null, "", `${window.location.pathname}?${params.toString()}`);
-  }, [selectedCategory]);
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      query ? `${window.location.pathname}?${query}` : window.location.pathname,
+    );
+  }, [selectedCategory, isPublicView]);
 
   const loadGifs = useCallback(async () => {
     const data = await fetchGifs();
