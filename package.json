@@ -28,7 +28,7 @@
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
-    "nanoid": "^5.1.16",
+    "nanoid": "^6.0.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "sql.js": "^1.14.1"
