@@ -244,10 +244,17 @@ export async function listCategories(): Promise<CategoryRow[]> {
 }
 
 export async function addCategory(name: string | undefined): Promise<CategoryRow | null> {
-  const trimmedName = (name || "").trim();
+  const trimmedName = (typeof name === "string" ? name : "").trim();
   if (!trimmedName) {
     const error: CodedError = new Error("Category name is required.");
     error.code = "CATEGORY_NAME_REQUIRED";
+    throw error;
+  }
+  if (trimmedName.length > config.MAX_CATEGORY_NAME_LENGTH) {
+    const error: CodedError = new Error(
+      `Category name must be ${config.MAX_CATEGORY_NAME_LENGTH} characters or fewer.`,
+    );
+    error.code = "CATEGORY_NAME_TOO_LONG";
     throw error;
   }
   const { db } = await getDatabase();

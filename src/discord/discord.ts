@@ -9,6 +9,7 @@ import {
 import config from "../server/config.ts";
 import { importFromUrl, extensionFromFilename } from "../server/importer.ts";
 import { toError } from "../server/errors.ts";
+import { createUserRateLimiter } from "./rate-limit.ts";
 
 const URL_PATTERN = /https?:\/\/[^\s<>"']+/g;
 const MEDIA_CONTENT_TYPES = /^(image\/gif|image\/webp|video\/mp4)/i;
@@ -48,6 +49,18 @@ export function buildShareUrl(slug: string, filename: string): string {
   return `${origin}${config.BASE_PATH}/share/${slug}.${extensionFromFilename(filename)}`;
 }
 
+export const importQuota = createUserRateLimiter(
+  config.DISCORD_RATE_LIMIT_MAX,
+  config.DISCORD_RATE_LIMIT_WINDOW_MS,
+);
+
+function formatRetryAfter(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  return `${Math.ceil(seconds / 60)}m`;
+}
+
 async function handleMessage(message: OmitPartialGroupDMChannel<Message>): Promise<void> {
   if (message.author.bot) {
     return;
@@ -68,10 +81,33 @@ async function handleMessage(message: OmitPartialGroupDMChannel<Message>): Promi
     return;
   }
 
+  const requested = attachmentUrls.length + contentUrls.length;
+  const quota = importQuota.take(message.author.id, requested);
+
+  if (quota.allowed === 0) {
+    await message
+      .reply({
+        content: `⏱️ Rate limit reached: ${config.DISCORD_RATE_LIMIT_MAX} gifs per ${formatRetryAfter(config.DISCORD_RATE_LIMIT_WINDOW_MS / 1000)}. Try again in ${formatRetryAfter(quota.retryAfterSeconds)}.`,
+      })
+      .catch(() => {});
+    return;
+  }
+
+  const skipped = requested - quota.allowed;
+  let budget = quota.allowed;
+  const takeBudget = (): boolean => {
+    if (budget <= 0) {
+      return false;
+    }
+    budget -= 1;
+    return true;
+  };
+
   await message.react("⏳").catch(() => {});
 
   const lines: string[] = [];
   for (const url of attachmentUrls) {
+    if (!takeBudget()) break;
     const result = await importFromUrl(url, { trusted: true });
     lines.push(
       result.success && result.slug && result.filename
@@ -80,11 +116,18 @@ async function handleMessage(message: OmitPartialGroupDMChannel<Message>): Promi
     );
   }
   for (const url of contentUrls) {
+    if (!takeBudget()) break;
     const result = await importFromUrl(url);
     lines.push(
       result.success && result.slug && result.filename
         ? `✅ ${buildShareUrl(result.slug, result.filename)}`
         : `❌ <${url}> failed: ${result.error || "unknown error"}`,
+    );
+  }
+
+  if (skipped > 0) {
+    lines.push(
+      `⏱️ ${skipped} skipped: rate limit of ${config.DISCORD_RATE_LIMIT_MAX} gifs per ${formatRetryAfter(config.DISCORD_RATE_LIMIT_WINDOW_MS / 1000)} reached. Try again in ${formatRetryAfter(quota.retryAfterSeconds)}.`,
     );
   }
 

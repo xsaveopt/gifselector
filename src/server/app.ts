@@ -6,7 +6,7 @@ import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import config from "./config.ts";
 import router from "./routes.ts";
-import { logRequest } from "./logger.ts";
+import { logRequest, sanitize } from "./logger.ts";
 
 const app = express();
 
@@ -92,8 +92,21 @@ app.get(`${config.BASE_PATH}/*rest`, (req, res, next) => {
 });
 
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err);
-  res.status(500).json({ error: "Internal server error." });
+  const candidate = err as { status?: unknown; statusCode?: unknown; message?: unknown };
+  const rawStatus = candidate?.status ?? candidate?.statusCode;
+  const status =
+    typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 600 ? rawStatus : 500;
+
+  if (status >= 500) {
+    console.error(err);
+    res.status(status).json({ error: "Internal server error." });
+    return;
+  }
+
+  console.warn(`[request] ${status}: ${sanitize(candidate?.message ?? "client error")}`);
+  res.status(status).json({
+    error: typeof candidate?.message === "string" ? candidate.message : "Bad request.",
+  });
 });
 
 export default app;

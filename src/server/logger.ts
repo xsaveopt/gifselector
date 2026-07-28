@@ -2,7 +2,7 @@ import fs from "node:fs";
 import type { Request } from "express";
 import config from "./config.ts";
 
-function sanitize(value: unknown): string {
+export function sanitize(value: unknown): string {
   return String(value).replace(/[\r\n]+/g, " ");
 }
 

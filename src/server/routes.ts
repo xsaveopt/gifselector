@@ -38,6 +38,8 @@ import {
   importFromUrl,
   type ImportResult,
 } from "./importer.ts";
+import { assertValidImage, sanitizeInPlace } from "./media-guard.ts";
+import { sanitize } from "./logger.ts";
 
 const fsPromises = fs.promises;
 
@@ -75,7 +77,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage,
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: config.MAX_FILE_SIZE_BYTES, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
       cb(new Error("Only GIF or WebP uploads are allowed."));
@@ -85,12 +87,28 @@ const upload = multer({
   },
 });
 
+const HOST_PATTERN = /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?$/;
+
+export function buildSharePath(slug: string, filename: string): string {
+  return `${config.BASE_PATH}/share/${slug}.${extensionFromFilename(filename)}`;
+}
+
+function requestOrigin(req: Request): string {
+  if (config.PUBLIC_ORIGIN) {
+    return config.PUBLIC_ORIGIN;
+  }
+  const forwardedProto = (req.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  const protocol =
+    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : "http";
+  const host = req.get("host") || "";
+  if (!HOST_PATTERN.test(host)) {
+    return "";
+  }
+  return `${protocol}://${host}`;
+}
+
 function buildShareUrl(req: Request, slug: string, filename: string): string {
-  const extension = extensionFromFilename(filename);
-  const forwardedProto = req.get("x-forwarded-proto");
-  const protocol = forwardedProto ? forwardedProto.split(",")[0] : req.protocol;
-  const host = req.get("host");
-  return `${protocol}://${host}${config.BASE_PATH}/share/${slug}.${extension}`;
+  return `${requestOrigin(req)}${buildSharePath(slug, filename)}`;
 }
 
 router.post("/api/login", express.json(), (req, res) => {
@@ -239,7 +257,7 @@ router.post("/api/categories", authMiddleware, express.json(), async (req, res, 
     return res.status(201).json({ category });
   } catch (error) {
     const err = toError(error);
-    if (err.code === "CATEGORY_NAME_REQUIRED") {
+    if (err.code === "CATEGORY_NAME_REQUIRED" || err.code === "CATEGORY_NAME_TOO_LONG") {
       return res.status(400).json({ error: err.message });
     }
     if (err.code === "CATEGORY_NAME_DUPLICATE") {
@@ -299,6 +317,24 @@ router.post("/api/upload", authMiddleware, (req, res, next) => {
     let filename = req.file.filename;
     let mimeType = req.file.mimetype;
     let sizeBytes = req.file.size;
+
+    try {
+      const kind = await assertValidImage(filePath, ["gif", "webp"]);
+      mimeType = MIME_EXTENSION_MAP[`image/${kind}`] ? `image/${kind}` : mimeType;
+      const detectedExt = `.${kind}`;
+      if (path.extname(filename).toLowerCase() !== detectedExt) {
+        const renamed = `${path.basename(filename, path.extname(filename))}${detectedExt}`;
+        const renamedPath = path.resolve(config.UPLOAD_DIR, renamed);
+        await fsPromises.rename(filePath, renamedPath);
+        filePath = renamedPath;
+        filename = renamed;
+      }
+      await sanitizeInPlace(filePath, kind);
+    } catch (validationError) {
+      await fsPromises.rm(filePath, { force: true }).catch(() => {});
+      return res.status(400).json({ error: toError(validationError).message });
+    }
+
     try {
       const animatedPath = await ensureAnimated(filePath);
       if (animatedPath) {
@@ -334,8 +370,8 @@ async function serveSharedGif(req: Request, res: Response, next: (error?: unknow
   const slug = routeParam(req.params.slug);
   const requestedExtParam = routeParam(req.params.ext);
   const clientIp = req.ip || req.socket?.remoteAddress || "unknown-ip";
-  const referer = req.get("referer") || req.get("referrer") || "no-referer";
-  console.log(`[share-access] slug=${slug} from ${clientIp} referer=${referer}`);
+  const referer = sanitize(req.get("referer") || req.get("referrer") || "no-referer");
+  console.log(`[share-access] slug=${sanitize(slug)} from ${clientIp} referer=${referer}`);
   try {
     const gif = await findGifBySlug(slug);
     if (!gif) {
@@ -348,7 +384,7 @@ async function serveSharedGif(req: Request, res: Response, next: (error?: unknow
     const storedExtension = path.extname(gif.filename).toLowerCase();
     const requestedExtension = requestedExtParam ? `.${requestedExtParam.toLowerCase()}` : null;
     if (requestedExtension && storedExtension && requestedExtension !== storedExtension) {
-      return res.redirect(301, buildShareUrl(req, gif.slug, gif.filename));
+      return res.redirect(301, buildSharePath(gif.slug, gif.filename));
     }
     const mimeType = gif.mimeType || EXTENSION_MIME_MAP[storedExtension] || "image/gif";
     res.type(mimeType);
@@ -370,8 +406,7 @@ router.get("/share/:slug", async (req, res, next) => {
     if (!gif) {
       return res.status(404).json({ error: "GIF not found." });
     }
-    const shareUrl = buildShareUrl(req, gif.slug, gif.filename);
-    return res.redirect(301, shareUrl);
+    return res.redirect(301, buildSharePath(gif.slug, gif.filename));
   } catch (error) {
     return next(error);
   }
@@ -397,9 +432,14 @@ router.delete("/api/gifs/:slug", authMiddleware, async (req, res, next) => {
 });
 
 router.post("/api/import", authMiddleware, express.json(), async (req, res) => {
-  const { urls } = req.body;
+  const { urls } = req.body || {};
   if (!Array.isArray(urls)) {
     return res.status(400).json({ error: "urls must be an array" });
+  }
+  if (urls.length > config.MAX_IMPORT_URLS) {
+    return res
+      .status(400)
+      .json({ error: `At most ${config.MAX_IMPORT_URLS} urls may be imported per request.` });
   }
 
   const results: ImportResult[] = [];
