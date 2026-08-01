@@ -2,7 +2,7 @@
 
 gifselector is a small self-hosted web app for keeping your own collection of GIFs, sorting them into categories, and sharing individual ones by link.
 You log in as the admin, drag GIFs in or import them from a URL, and hand out share links that point straight at the animated file.
-An optional Discord bot brings the same importer into chat: send it a GIF and it saves the file to your collection and replies with the link.
+An optional Discord bot brings the same importer into a server you invite it to, where a GIF you post is saved to your collection and answered with the link.
 
 It is one project.
 A React front end and an Express back end live in the same package, build together, and are served by the same process on a single port.
@@ -77,14 +77,24 @@ Here is each variable, what it does, and the value it falls back to:
 
 ## The Discord bot
 
-The bot takes the URL importer into Discord, so a GIF you send it, whether as an attachment or a link, is saved to your collection and answered with its share link.
+The bot takes the URL importer into Discord, so a GIF you post where the bot can read it, whether as an attachment or a link, is saved to your collection and answered with its share link.
+It works by reading ordinary messages rather than by responding to slash commands, which is what decides how it has to be installed.
 
-To set it up, create an application on the [Discord developer portal](https://discord.com/developers/applications), add a bot to it, and enable the Message Content Intent under Privileged Gateway Intents.
+Start on the [Discord developer portal](https://discord.com/developers/applications) by creating an application, adding a bot to it, and enabling the Message Content Intent under Privileged Gateway Intents.
+Without that intent Discord delivers empty message text, so pasted links are invisible to the bot and only attachments still come through.
+
+The bot then has to join a server as a member.
+Build the invite yourself under OAuth2 with the URL generator, tick the bot scope, and give it View Channels, Send Messages, Read Message History and Add Reactions in the server you pick.
+The install link offered on the application's own page installs the app against your account instead, which suits an app made of slash commands and leaves this one absent from every server, so reach for the URL generator rather than that link.
+
+Once it is in a server you can post a GIF in any channel it can see, or open its profile and message it directly.
+
 Put the bot token in DISCORD_BOT_TOKEN, your own Discord user id in DISCORD_ALLOWED_USER_IDS, and your instance's public origin in DISCORD_PUBLIC_ORIGIN so the links it replies with point back at you, for example https://gifs.example.com.
 The bot only starts when a token is present, and with the allowed user list empty it ignores everyone, which is the safe default.
 DISCORD_CHANNEL_IDS optionally restricts it to specific channels, and left empty it answers in any channel or direct message.
+Filling it in covers direct messages too.
 
-Once it is running, every message from an allowed user is scanned for GIF, WebP, and MP4 attachments and links.
+Every message from an allowed user is scanned for GIF, WebP, and MP4 attachments and links.
 Attachments are imported directly, links go through the same domain allowlist as the web importer, and MP4s are converted to WebP just as they are on the site.
 
 ## Development
