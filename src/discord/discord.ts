@@ -61,7 +61,7 @@ function formatRetryAfter(seconds: number): string {
   return `${Math.ceil(seconds / 60)}m`;
 }
 
-async function handleMessage(message: OmitPartialGroupDMChannel<Message>): Promise<void> {
+export async function handleMessage(message: OmitPartialGroupDMChannel<Message>): Promise<void> {
   if (message.author.bot) {
     return;
   }

@@ -1,8 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import util from "node:util";
-import { execFile } from "node:child_process";
 import { nanoid } from "nanoid";
 import { addGif } from "./database.ts";
 import config from "./config.ts";
@@ -12,6 +10,7 @@ import {
   assertWithinPixelBudget,
   detectFileMediaKind,
   detectMediaKind,
+  mediaExec,
   pinnedInput,
   runMagick,
   sanitizeInPlace,
@@ -22,7 +21,8 @@ import {
 import { toError } from "./errors.ts";
 
 const fsPromises = fs.promises;
-const execFilePromise = util.promisify(execFile);
+
+export const importNet: { fetch: typeof safeFetch } = { fetch: safeFetch };
 
 const FFMPEG_INPUT_ARGS = [
   "-y",
@@ -122,7 +122,7 @@ async function getFrameCount(filePath: string): Promise<number> {
   ];
   for (const [bin, args] of commands) {
     try {
-      const { stdout } = await execFilePromise(bin, args, { timeout: config.MEDIA_TIMEOUT_MS });
+      const { stdout } = await mediaExec.run(bin, args, { timeout: config.MEDIA_TIMEOUT_MS });
       const count = parseInt(stdout.trim().split("\n")[0], 10);
       if (Number.isFinite(count)) {
         return count;
@@ -207,7 +207,7 @@ export async function importFromUrl(
 
     try {
       try {
-        await execFilePromise(
+        await mediaExec.run(
           "gallery-dl",
           ["--filesize-max", String(MAX_DOWNLOAD_SIZE), "--directory", tempDir, urlStr],
           { timeout: config.MEDIA_TIMEOUT_MS },
@@ -215,7 +215,7 @@ export async function importFromUrl(
       } catch {
         console.warn(`[Import] gallery-dl failed for ${urlStr}, attempting fallback.`);
 
-        const pageResp = await safeFetch(urlStr, {
+        const pageResp = await importNet.fetch(urlStr, {
           headers: {
             "User-Agent": "Mozilla/5.0 (compatible; GifSelector/1.0; +http://localhost)",
           },
@@ -271,7 +271,7 @@ export async function importFromUrl(
           }
           mediaUrl = parsedMediaUrl.toString();
 
-          const mediaResp = await safeFetch(mediaUrl, {
+          const mediaResp = await importNet.fetch(mediaUrl, {
             headers: { "User-Agent": "GifSelector/1.0" },
           });
 
@@ -363,7 +363,7 @@ export async function importFromUrl(
 
           if (isMp4) {
             try {
-              await execFilePromise(
+              await mediaExec.run(
                 "ffmpeg",
                 [...FFMPEG_INPUT_ARGS, downloadedPath, ...FFMPEG_WEBP_ARGS, webpPath],
                 {
@@ -404,7 +404,7 @@ export async function importFromUrl(
           } else if (isMp4) {
             const gifPath = downloadedPath.replace(new RegExp(`${ext}$`, "i"), ".gif");
             try {
-              await execFilePromise(
+              await mediaExec.run(
                 "ffmpeg",
                 [...FFMPEG_INPUT_ARGS, downloadedPath, "-map_metadata", "-1", gifPath],
                 { timeout: config.MEDIA_TIMEOUT_MS },

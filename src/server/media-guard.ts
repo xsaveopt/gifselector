@@ -6,7 +6,14 @@ import { nanoid } from "nanoid";
 import config from "./config.ts";
 
 const fsPromises = fs.promises;
-const execFilePromise = util.promisify(execFile);
+
+export type ExecFileRunner = (
+  file: string,
+  args: string[],
+  options: { timeout: number },
+) => Promise<{ stdout: string; stderr: string }>;
+
+export const mediaExec: { run: ExecFileRunner } = { run: util.promisify(execFile) };
 
 export const SIGNATURE_HEADER_BYTES = 16;
 
@@ -41,7 +48,7 @@ export async function runMagick(args: string[]): Promise<void> {
   let lastError: unknown = new Error("ImageMagick is not available");
   for (const bin of ["magick", "convert"]) {
     try {
-      await execFilePromise(bin, [...MAGICK_LIMITS, ...args], {
+      await mediaExec.run(bin, [...MAGICK_LIMITS, ...args], {
         timeout: config.MEDIA_TIMEOUT_MS,
       });
       return;
@@ -95,7 +102,7 @@ export async function probeDecodable(filePath: string): Promise<boolean> {
     ["identify", [filePath]],
   ] as [string, string[]][]) {
     try {
-      await execFilePromise(bin, args, { timeout: 30_000 });
+      await mediaExec.run(bin, args, { timeout: 30_000 });
       return true;
     } catch (err) {
       const code = (err as { code?: unknown }).code;
@@ -135,7 +142,7 @@ export async function probeGeometry(filePath: string, kind: MediaKind): Promise<
         ? ["identify", "-ping", "-format", "%w %h\n", pinnedInput(filePath, kind)]
         : ["-ping", "-format", "%w %h\n", pinnedInput(filePath, kind)];
     try {
-      const { stdout } = await execFilePromise(bin, args, { timeout: config.MEDIA_TIMEOUT_MS });
+      const { stdout } = await mediaExec.run(bin, args, { timeout: config.MEDIA_TIMEOUT_MS });
       let frames = 0;
       let totalPixels = 0;
       for (const line of stdout.trim().split("\n")) {
