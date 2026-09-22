@@ -7,6 +7,7 @@ import cookieParser from "cookie-parser";
 import config from "./config.ts";
 import router from "./routes.ts";
 import { logRequest, sanitize } from "./logger.ts";
+import { isDatabaseReady } from "./database.ts";
 
 const app = express();
 
@@ -21,6 +22,14 @@ app.use(
 
 app.use(cookieParser());
 app.use(config.MOUNT_PATH, express.json());
+
+app.get(`${config.BASE_PATH}/health`, async (_req, res) => {
+  const ready = await isDatabaseReady();
+  res
+    .status(ready ? 200 : 503)
+    .type("text/plain")
+    .send(ready ? "up" : "degraded");
+});
 
 app.use((req, _res, next) => {
   logRequest(req);

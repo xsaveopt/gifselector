@@ -52,3 +52,6 @@ EXPOSE 3000
 USER node
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "src/server/server.ts"]
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD b="${BASE_PATH:-}"; [ "$b" = "/" ] && b=""; case "$b" in ""|/*) ;; *) b="/$b" ;; esac; b="${b%/}"; curl -fsS "http://127.0.0.1:${PORT:-3000}${b}/health" || exit 1

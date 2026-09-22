@@ -107,6 +107,15 @@ function persistDatabase(db: Database): void {
   fs.writeFileSync(dbPath, Buffer.from(data));
 }
 
+export async function isDatabaseReady(): Promise<boolean> {
+  try {
+    await getDatabase();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function addGif({
   slug,
   filename,

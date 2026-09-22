@@ -311,4 +311,15 @@ describe("http api", () => {
     const res = await fetch(`${baseUrl}/does-not-exist`);
     assert.equal(res.status, 404);
   });
+
+  it("reports up on the base-path health endpoint", async () => {
+    const res = await fetch(`${baseUrl}/health`);
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "up");
+  });
+
+  it("does not serve health at the bare root when a base path is set", async () => {
+    const res = await fetch(`http://127.0.0.1:${port}/health`);
+    assert.equal(res.status, 404);
+  });
 });
