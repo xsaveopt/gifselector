@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import type { NextFunction, Request, Response } from "express";
 import { fakeExec, gifBytes, tempEnv, webpBytes } from "./helpers.ts";
+import type { FakeExec } from "./helpers.ts";
 
 const storageDir = tempEnv();
 process.env.BASE_PATH = "/gifs";
@@ -17,7 +19,7 @@ const config = (await import("../../src/server/config.ts")).default;
 const { mediaExec } = await import("../../src/server/media-guard.ts");
 const { importNet } = await import("../../src/server/importer.ts");
 const routes = await import("../../src/server/routes.ts");
-const { addCategory, addGif, deleteGifBySlug, listCategories, setGifCategories } =
+const { addCategory, addGif, deleteGifBySlug, listCategories, listGifs, setGifCategories } =
   await import("../../src/server/database.ts");
 
 const uploadDir = path.join(storageDir, "uploads");
@@ -460,5 +462,257 @@ describe("import route", () => {
       method: "DELETE",
       headers: { cookie },
     });
+  });
+});
+
+function uploadForm(bytes: Buffer, type: string, name: string): FormData {
+  const form = new FormData();
+  form.set("gif", new Blob([new Uint8Array(bytes)], { type }), name);
+  return form;
+}
+
+async function withMediaExec(run: FakeExec["run"], body: () => Promise<void>): Promise<void> {
+  const previous = mediaExec.run;
+  mediaExec.run = run;
+  try {
+    await body();
+  } finally {
+    mediaExec.run = previous;
+  }
+}
+
+async function waitFor(check: () => boolean): Promise<boolean> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (check()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return check();
+}
+
+describe("upload cleanup", () => {
+  it("removes the stored file when sanitizing fails", async () => {
+    const cookie = await adminCookie();
+    const before = fs.readdirSync(uploadDir).sort();
+    await withMediaExec(fakeExec({ magick: false }).run, async () => {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(gifBytes(), "image/gif", "unsanitizable.gif"),
+      });
+      assert.equal(res.status, 400);
+      assert.match(((await res.json()) as { error: string }).error, /magick exited/);
+    });
+    assert.deepEqual(fs.readdirSync(uploadDir).sort(), before);
+    const names = (await listGifs()).map((gif) => gif.originalName);
+    assert.ok(!names.includes("unsanitizable.gif"));
+  });
+
+  it("removes the renamed file when validation fails after a rename", async () => {
+    const cookie = await adminCookie();
+    const before = fs.readdirSync(uploadDir).sort();
+    const fake = fakeExec();
+    const run: FakeExec["run"] = async (file, args, options) => {
+      if (args.includes("-strip")) {
+        throw new Error("magick exited with code 1");
+      }
+      return fake.run(file, args, options);
+    };
+    await withMediaExec(run, async () => {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(gifBytes(), "image/webp", "renamed-then-failed.webp"),
+      });
+      assert.equal(res.status, 400);
+    });
+    assert.deepEqual(fs.readdirSync(uploadDir).sort(), before);
+  });
+
+  it("removes the stored file when the database write fails", async () => {
+    const cookie = await adminCookie();
+    const before = fs.readdirSync(uploadDir).sort();
+    const dbPath = path.join(storageDir, "gifselector.db");
+    const saved = fs.readFileSync(dbPath);
+    fs.rmSync(dbPath);
+    fs.mkdirSync(dbPath);
+    let status = 0;
+    try {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(gifBytes(), "image/gif", "db-write-fails.gif"),
+      });
+      status = res.status;
+      await res.arrayBuffer();
+    } finally {
+      fs.rmSync(dbPath, { recursive: true, force: true });
+      fs.writeFileSync(dbPath, saved);
+    }
+    for (const gif of await listGifs()) {
+      if (gif.originalName === "db-write-fails.gif") {
+        await deleteGifBySlug(gif.slug);
+      }
+    }
+    assert.equal(status, 500);
+    const cleaned = await waitFor(
+      () => fs.readdirSync(uploadDir).sort().join("\n") === before.join("\n"),
+    );
+    assert.equal(cleaned, true);
+  });
+
+  it("does not list a gif whose database write failed", async () => {
+    const cookie = await adminCookie();
+    const dbPath = path.join(storageDir, "gifselector.db");
+    const saved = fs.readFileSync(dbPath);
+    fs.rmSync(dbPath);
+    fs.mkdirSync(dbPath);
+    try {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(gifBytes(), "image/gif", "db-write-orphan.gif"),
+      });
+      assert.equal(res.status, 500);
+    } finally {
+      fs.rmSync(dbPath, { recursive: true, force: true });
+      fs.writeFileSync(dbPath, saved);
+    }
+    const orphans = (await listGifs()).filter((gif) => gif.originalName === "db-write-orphan.gif");
+    for (const orphan of orphans) {
+      await deleteGifBySlug(orphan.slug);
+    }
+    assert.equal(orphans.length, 0);
+  });
+});
+
+describe("upload animation pass", () => {
+  it("turns a still webp into an animated gif", async () => {
+    const cookie = await adminCookie();
+    const before = new Set(fs.readdirSync(uploadDir));
+    await withMediaExec(fakeExec({ frames: 1 }).run, async () => {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(webpBytes(), "image/webp", "still.webp"),
+      });
+      assert.equal(res.status, 201);
+      const body = (await res.json()) as { slug: string; shareUrl: string };
+      assert.match(body.shareUrl, /\.gif$/);
+
+      const stored = (await listGifs()).find((gif) => gif.slug === body.slug);
+      assert.equal(stored?.mimeType, "image/gif");
+      assert.match(stored?.filename ?? "", /\.gif$/);
+      assert.equal(stored?.sizeBytes, gifBytes().length);
+      const added = fs.readdirSync(uploadDir).filter((entry) => !before.has(entry));
+      assert.deepEqual(added, [stored?.filename]);
+
+      await deleteGifBySlug(body.slug);
+      fs.rmSync(path.join(uploadDir, stored?.filename ?? ""), { force: true });
+    });
+  });
+
+  it("keeps the original upload when the animation pass fails", async () => {
+    const cookie = await adminCookie();
+    const before = new Set(fs.readdirSync(uploadDir));
+    const fake = fakeExec({ frames: 1 });
+    const run: FakeExec["run"] = async (file, args, options) => {
+      if (args.includes("-duplicate")) {
+        throw new Error("magick exited with code 1");
+      }
+      return fake.run(file, args, options);
+    };
+    await withMediaExec(run, async () => {
+      const res = await fetch(`${baseUrl}/api/upload`, {
+        method: "POST",
+        headers: { cookie },
+        body: uploadForm(webpBytes(), "image/webp", "stubborn.webp"),
+      });
+      assert.equal(res.status, 201);
+      const body = (await res.json()) as { slug: string; shareUrl: string };
+      assert.match(body.shareUrl, /\.webp$/);
+
+      const stored = (await listGifs()).find((gif) => gif.slug === body.slug);
+      assert.equal(stored?.mimeType, "image/webp");
+      const added = fs.readdirSync(uploadDir).filter((entry) => !before.has(entry));
+      assert.deepEqual(added, [stored?.filename]);
+
+      await deleteGifBySlug(body.slug);
+      fs.rmSync(path.join(uploadDir, stored?.filename ?? ""), { force: true });
+    });
+  });
+});
+
+function rawGet(pathname: string, headers: Record<string, string>): Promise<string> {
+  const port = (server.address() as AddressInfo).port;
+  return new Promise<string>((resolve, reject) => {
+    const socket = net.connect(port, "127.0.0.1", () => {
+      const lines = Object.entries(headers).map(([name, value]) => `${name}: ${value}`);
+      socket.write(
+        `GET ${pathname} HTTP/1.1\r\n${lines.join("\r\n")}\r\nConnection: close\r\n\r\n`,
+      );
+    });
+    let buffer = "";
+    socket.on("data", (chunk) => (buffer += chunk));
+    socket.on("error", reject);
+    socket.on("close", () => resolve(buffer));
+  });
+}
+
+describe("share url origin", () => {
+  it("falls back to a relative share url when the Host header is malformed", async () => {
+    const cookie = await adminCookie();
+    await seedGif("badhost", "badhost.gif");
+    try {
+      const raw = await rawGet("/api/gifs", {
+        Host: "evil.example.com@attacker.example",
+        Cookie: cookie,
+      });
+      const body = JSON.parse(raw.slice(raw.indexOf("\r\n\r\n") + 4)) as {
+        gifs: { slug: string; shareUrl: string }[];
+      };
+      const listed = body.gifs.find((gif) => gif.slug === "badhost");
+      assert.equal(listed?.shareUrl, "/gifs/share/badhost.gif");
+    } finally {
+      await deleteGifBySlug("badhost");
+    }
+  });
+
+  it("prefers the configured public origin over the request host", async () => {
+    const cookie = await adminCookie();
+    const configured = config.PUBLIC_ORIGIN;
+    config.PUBLIC_ORIGIN = "https://gifs.example.com";
+    await seedGif("pinned-origin", "pinned-origin.gif");
+    try {
+      const res = await fetch(`${baseUrl}/api/gifs`, {
+        headers: { cookie, "x-forwarded-proto": "http" },
+      });
+      const body = (await res.json()) as { gifs: { slug: string; shareUrl: string }[] };
+      const listed = body.gifs.find((gif) => gif.slug === "pinned-origin");
+      assert.equal(listed?.shareUrl, "https://gifs.example.com/gifs/share/pinned-origin.gif");
+    } finally {
+      config.PUBLIC_ORIGIN = configured;
+      await deleteGifBySlug("pinned-origin");
+    }
+  });
+});
+
+describe("category conflicts", () => {
+  it("answers 409 for a name that only differs by surrounding whitespace", async () => {
+    const cookie = await adminCookie();
+    const first = await fetch(`${baseUrl}/api/categories`, {
+      method: "POST",
+      headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Conflicted" }),
+    });
+    assert.equal(first.status, 201);
+    const second = await fetch(`${baseUrl}/api/categories`, {
+      method: "POST",
+      headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "  Conflicted  " }),
+    });
+    assert.equal(second.status, 409);
+    assert.match(((await second.json()) as { error: string }).error, /already exists/);
   });
 });

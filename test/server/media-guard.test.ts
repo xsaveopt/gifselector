@@ -4,8 +4,13 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { describe, it } from "node:test";
-import { declaredSizeGif, tempEnv } from "./helpers.ts";
+import { declaredSizeGif, enoent, tempEnv } from "./helpers.ts";
 import {
+  MAGICK_LIMITS,
+  mediaExec,
+  pinnedInput,
+  probeDecodable,
+  runMagick,
   detectMediaKind,
   detectFileMediaKind,
   assertValidImage,
@@ -167,5 +172,237 @@ describe("assertValidImage", () => {
   it("rejects an mp4 when only images are expected", async () => {
     const video = write("clip.mp4", mp4Bytes());
     await assert.rejects(() => assertValidImage(video, ["gif", "webp"]), /not a valid GIF or WebP/);
+  });
+});
+
+type ExecCall = { file: string; args: string[] };
+type ExecReply = { stdout?: string; error?: Error };
+
+async function withFakeExec(
+  replies: Record<string, ExecReply>,
+  body: (calls: ExecCall[]) => Promise<void>,
+): Promise<void> {
+  const calls: ExecCall[] = [];
+  const realRun = mediaExec.run;
+  mediaExec.run = async (file, args) => {
+    calls.push({ file, args });
+    const reply = replies[file];
+    if (!reply) {
+      throw enoent(file);
+    }
+    if (reply.error) {
+      throw reply.error;
+    }
+    return { stdout: reply.stdout ?? "", stderr: "" };
+  };
+  try {
+    await body(calls);
+  } finally {
+    mediaExec.run = realRun;
+  }
+}
+
+describe("runMagick with a fake exec", () => {
+  it("prefixes the resource limits and stops after magick succeeds", async () => {
+    await withFakeExec({ magick: {} }, async (calls) => {
+      await runMagick(["in.gif", "out.gif"]);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].file, "magick");
+      assert.deepEqual(calls[0].args, [...MAGICK_LIMITS, "in.gif", "out.gif"]);
+    });
+  });
+
+  it("falls back to convert when magick is not installed", async () => {
+    await withFakeExec({ convert: {} }, async (calls) => {
+      await runMagick(["in.gif", "out.gif"]);
+      assert.deepEqual(
+        calls.map((call) => call.file),
+        ["magick", "convert"],
+      );
+      assert.deepEqual(calls[1].args, [...MAGICK_LIMITS, "in.gif", "out.gif"]);
+    });
+  });
+
+  it("retries with convert when magick fails for another reason", async () => {
+    await withFakeExec(
+      { magick: { error: new Error("magick exited with code 1") }, convert: {} },
+      async (calls) => {
+        await runMagick(["in.gif", "out.gif"]);
+        assert.deepEqual(
+          calls.map((call) => call.file),
+          ["magick", "convert"],
+        );
+      },
+    );
+  });
+
+  it("reports that imagemagick is missing when neither binary exists", async () => {
+    await withFakeExec({}, async () => {
+      await assert.rejects(() => runMagick(["in.gif", "out.gif"]), /ImageMagick is not available/);
+    });
+  });
+
+  it("surfaces the magick failure when convert is not installed", async () => {
+    await withFakeExec({ magick: { error: new Error("magick exited with code 1") } }, async () => {
+      await assert.rejects(() => runMagick(["in.gif", "out.gif"]), /magick exited with code 1/);
+    });
+  });
+
+  it("surfaces the convert failure when both binaries fail", async () => {
+    await withFakeExec(
+      {
+        magick: { error: new Error("magick exited with code 1") },
+        convert: { error: new Error("convert exited with code 1") },
+      },
+      async () => {
+        await assert.rejects(() => runMagick(["in.gif", "out.gif"]), /convert exited with code 1/);
+      },
+    );
+  });
+});
+
+describe("probeDecodable with a fake exec", () => {
+  it("accepts a file magick can identify", async () => {
+    await withFakeExec({ magick: {} }, async (calls) => {
+      assert.equal(await probeDecodable("clip.gif"), true);
+      assert.deepEqual(calls, [{ file: "magick", args: ["identify", "clip.gif"] }]);
+    });
+  });
+
+  it("falls back to identify when magick is not installed", async () => {
+    await withFakeExec({ identify: {} }, async (calls) => {
+      assert.equal(await probeDecodable("clip.gif"), true);
+      assert.deepEqual(calls[1], { file: "identify", args: ["clip.gif"] });
+    });
+  });
+
+  it("rejects a file magick fails to identify without trying identify", async () => {
+    await withFakeExec(
+      { magick: { error: new Error("identify: corrupt image") }, identify: {} },
+      async (calls) => {
+        assert.equal(await probeDecodable("clip.gif"), false);
+        assert.equal(calls.length, 1);
+      },
+    );
+  });
+
+  it("rejects a file the identify fallback fails on", async () => {
+    await withFakeExec({ identify: { error: new Error("identify: corrupt image") } }, async () => {
+      assert.equal(await probeDecodable("clip.gif"), false);
+    });
+  });
+
+  it("lets the file through when no imagemagick binary is installed", async () => {
+    await withFakeExec({}, async (calls) => {
+      assert.equal(await probeDecodable("clip.gif"), true);
+      assert.equal(calls.length, 2);
+    });
+  });
+});
+
+describe("probeGeometry with a fake exec", () => {
+  it("pings the pinned coder through magick identify", async () => {
+    await withFakeExec({ magick: { stdout: "10 20\n" } }, async (calls) => {
+      await probeGeometry("clip.webp", "webp");
+      assert.deepEqual(calls[0].args, [
+        "identify",
+        "-ping",
+        "-format",
+        "%w %h\n",
+        pinnedInput("clip.webp", "webp"),
+      ]);
+      assert.equal(pinnedInput("clip.webp", "webp"), "WEBP:clip.webp");
+    });
+  });
+
+  it("sums the pixels of every frame", async () => {
+    await withFakeExec({ magick: { stdout: "100 50\n200 10\n30 30\n" } }, async () => {
+      assert.deepEqual(await probeGeometry("clip.gif", "gif"), {
+        frames: 3,
+        totalPixels: 100 * 50 + 200 * 10 + 30 * 30,
+      });
+    });
+  });
+
+  it("skips lines that are not a width and height", async () => {
+    await withFakeExec({ magick: { stdout: "garbage\n40 40\n12\n" } }, async () => {
+      assert.deepEqual(await probeGeometry("clip.gif", "gif"), { frames: 1, totalPixels: 1600 });
+    });
+  });
+
+  it("returns null when no frame could be read", async () => {
+    await withFakeExec({ magick: { stdout: "" } }, async () => {
+      assert.equal(await probeGeometry("clip.gif", "gif"), null);
+    });
+  });
+
+  it("falls back to identify without the subcommand", async () => {
+    await withFakeExec({ identify: { stdout: "8 8\n" } }, async (calls) => {
+      assert.deepEqual(await probeGeometry("clip.gif", "gif"), { frames: 1, totalPixels: 64 });
+      assert.equal(calls[1].file, "identify");
+      assert.deepEqual(calls[1].args, ["-ping", "-format", "%w %h\n", "GIF:clip.gif"]);
+    });
+  });
+
+  it("returns null when magick fails", async () => {
+    await withFakeExec(
+      { magick: { error: new Error("boom") }, identify: { stdout: "8 8\n" } },
+      async (calls) => {
+        assert.equal(await probeGeometry("clip.gif", "gif"), null);
+        assert.equal(calls.length, 1);
+      },
+    );
+  });
+
+  it("returns null when no imagemagick binary is installed", async () => {
+    await withFakeExec({}, async () => {
+      assert.equal(await probeGeometry("clip.gif", "gif"), null);
+    });
+  });
+});
+
+describe("assertWithinPixelBudget with a fake exec", () => {
+  it("rejects frames whose combined pixels exceed the budget", async () => {
+    await withFakeExec({ magick: { stdout: "5000 5000\n5000 5000\n5000 5000\n" } }, async () => {
+      await assert.rejects(
+        () => assertWithinPixelBudget("clip.gif", "gif"),
+        /megapixel budget \(75 MP across 3 frame\(s\)\)/,
+      );
+    });
+  });
+
+  it("accepts an animation right at the budget", async () => {
+    await withFakeExec({ magick: { stdout: "5000 5000\n5000 5000\n" } }, async () => {
+      await assertWithinPixelBudget("clip.gif", "gif");
+    });
+  });
+});
+
+describe("sanitizeInPlace with a fake exec", () => {
+  it("refuses to sanitize an mp4", async () => {
+    await withFakeExec({ magick: {} }, async (calls) => {
+      await assert.rejects(() => sanitizeInPlace("clip.mp4", "mp4"), /cannot be sanitized/);
+      assert.equal(calls.length, 0);
+    });
+  });
+
+  it("leaves the original and no temp file behind when imagemagick fails", async () => {
+    const filePath = write("unsanitized.gif", gifBytes());
+    const before = fs.readdirSync(dir).sort();
+    await withFakeExec({ magick: { error: new Error("magick exited with code 1") } }, async () => {
+      await assert.rejects(() => sanitizeInPlace(filePath, "gif"), /magick exited/);
+    });
+    assert.deepEqual(fs.readdirSync(dir).sort(), before);
+    assert.deepEqual(fs.readFileSync(filePath), gifBytes());
+  });
+
+  it("fails when imagemagick exits cleanly without writing the output", async () => {
+    const filePath = write("unwritten.gif", gifBytes());
+    await withFakeExec({ magick: {} }, async (calls) => {
+      await assert.rejects(() => sanitizeInPlace(filePath, "gif"), /ENOENT/);
+      const target = calls[0].args[calls[0].args.length - 1];
+      assert.match(target, /^GIF:.*unwritten-clean-[\w-]{6}\.gif$/);
+    });
+    assert.deepEqual(fs.readFileSync(filePath), gifBytes());
   });
 });

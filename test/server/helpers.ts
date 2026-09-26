@@ -140,6 +140,12 @@ export function fakeExec(options: FakeExecOptions = {}): FakeExec {
   return { calls, run };
 }
 
+export function enoent(file: string): Error & { code: string } {
+  const error = new Error(`spawn ${file} ENOENT`) as Error & { code: string };
+  error.code = "ENOENT";
+  return error;
+}
+
 export function tempEnv(options: TempEnvOptions = {}): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gifselector-test-"));
   const uploadDir = path.join(dir, "uploads");
