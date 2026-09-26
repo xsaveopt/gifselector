@@ -104,6 +104,7 @@ function getDatabase(): Promise<{ SQL: SqlJsStatic; db: Database }> {
 function persistDatabase(db: Database): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const data = db.export();
+  db.run("PRAGMA foreign_keys = ON");
   fs.writeFileSync(dbPath, Buffer.from(data));
 }
 
@@ -136,7 +137,12 @@ export async function addGif({
     ":sizeBytes": sizeBytes,
   });
   stmt.free();
-  persistDatabase(db);
+  try {
+    persistDatabase(db);
+  } catch (err) {
+    db.run("DELETE FROM gifs WHERE slug = :slug", { ":slug": slug });
+    throw err;
+  }
 }
 
 function attachCategories(db: Database, results: GifWithCategories[]): void {
