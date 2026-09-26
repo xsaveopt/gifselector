@@ -44,6 +44,17 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      - name: Install ImageMagick
+        env:
+          IMAGEMAGICK_VERSION: 7.1.2-31
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libfontconfig1 libfribidi0 libgomp1 libharfbuzz0b libx11-6
+          sudo curl -fsSL -o /usr/local/bin/magick "https://github.com/ImageMagick/ImageMagick/releases/download/${IMAGEMAGICK_VERSION}/ImageMagick-${IMAGEMAGICK_VERSION}-gcc-x86_64.AppImage"
+          sudo chmod +x /usr/local/bin/magick
+          echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+          APPIMAGE_EXTRACT_AND_RUN=1 magick -version
+
       - name: Test
         run: pnpm test
 
