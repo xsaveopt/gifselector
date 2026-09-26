@@ -28,3 +28,11 @@ describe("health endpoint without a base path", () => {
     assert.equal(await res.text(), "up");
   });
 });
+
+describe("frontend shell without a build", () => {
+  it("answers 404 when index.html is missing", async () => {
+    const res = await fetch(`${baseUrl}/`);
+    assert.equal(res.status, 404);
+    assert.equal(await res.text(), "Frontend build not found.");
+  });
+});
